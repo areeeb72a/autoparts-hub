@@ -385,29 +385,37 @@ async function pgInv(){
 }
 
 async function deleteItem(id,name,qty){
-  // Safety checks
   if(qty>0){
-    alert('⚠ Cannot delete!\n\n"'+name+'" still has '+qty+' pcs in stock.\n\nPlease reduce stock to 0 via Inventory Adjustment before deleting.');
+    alert('⚠ Cannot delete!\n\n"'+name+'" still has '+qty+' pcs in stock.\n\nReduce stock to 0 via Inventory Adjustment first.');
     return;
   }
-  // Check if item is used in any active orders
+  // Check active orders
   const {data:oi}=await SB.from('order_items').select('id,orders(status)').eq('item_id',id);
   const activeOrders=(oi||[]).filter(function(o){return ['pending','picking','picked'].includes(o.orders?.status);});
   if(activeOrders.length>0){
-    alert('⚠ Cannot delete!\n\n"'+name+'" is part of '+activeOrders.length+' active order(s).\n\nCancel or complete those orders first.');
+    alert('⚠ Cannot delete!\n\n"'+name+'" is in '+activeOrders.length+' active order(s).\nComplete or cancel those orders first.');
     return;
   }
-  // Check active quotes
+  // Check pending quotes
   const {data:qi}=await SB.from('quote_items').select('id,quotes(status)').eq('item_id',id);
   const activeQuotes=(qi||[]).filter(function(q){return q.quotes?.status==='pending';});
   if(activeQuotes.length>0){
-    alert('⚠ Cannot delete!\n\n"'+name+'" is in '+activeQuotes.length+' pending quote(s).\n\nCancel those quotes first.');
+    alert('⚠ Cannot delete!\n\n"'+name+'" is in '+activeQuotes.length+' pending quote(s).\nCancel those quotes first.');
     return;
   }
-  if(!confirm('Delete "'+name+'"?\n\nThis action CANNOT be undone.\nAll history (past orders, quotes) will lose item reference.'))return;
+  if(!confirm('Delete "'+name+'"?\n\nThis will also remove:\n• All quote history for this item\n• All order history for this item\n\nThis CANNOT be undone.'))return;
+
+  // Cascade delete all related records first
+  await SB.from('quote_items').delete().eq('item_id',id);
+  await SB.from('order_items').delete().eq('item_id',id);
+  await SB.from('po_items').delete().eq('item_id',id);
+  await SB.from('back_orders').delete().eq('item_id',id);
+  await SB.from('adjustment_items').delete().eq('item_id',id);
+
+  // Now delete the item
   const {error}=await SB.from('items').delete().eq('id',id);
   if(error){
-    alert('Error deleting: '+error.message);return;
+    alert('Error: '+error.message);return;
   }
   alert('✅ "'+name+'" deleted successfully.');
   pgInv();
