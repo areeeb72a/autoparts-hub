@@ -200,6 +200,7 @@ function getMenus(){
     {id:'items_master',icon:'🗃️',label:'Items Master',r:['owner','manager','parts_supervisor','ordering']},
     {id:'item_inquiry',icon:'🔍',label:'Item Inquiry',r:['owner','manager','salesperson','store_supervisor','ordering','parts_supervisor','picker']},
     {id:'parts_book',icon:'📖',label:'Parts Reference Book',r:['owner','manager','salesperson','store_supervisor','ordering','parts_supervisor','picker']},
+    {id:'service_book',icon:'🔧',label:'Service & Manual Search',r:['owner','manager','salesperson','store_supervisor','ordering','parts_supervisor','picker']},
     {id:'customers',icon:'🏢',label:'Customers',r:['owner','manager','salesperson']},
     {id:'quotes',icon:'📝',label:'Quotes',r:['owner','manager','salesperson']},
     {id:'orders',icon:'🛒',label:'Orders',r:['owner','manager','salesperson','store_supervisor']},
@@ -228,7 +229,7 @@ function nav(p){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('nav-'+p);if(el)el.classList.add('active');
   document.getElementById('mainContent').innerHTML='<div class="loading"><div class="spinner"></div>Loading...</div>';
-  const map={dashboard:pgDash,inventory:pgInv,items_master:pgItems,item_inquiry:pgItemInquiry,parts_book:pgPartsBook,customers:pgCust,quotes:pgQuotes,orders:pgOrders,back_orders:pgBackOrders,picking:pgPicking,short_damaged:pgSD,delivery_notes:pgDN,invoices:pgInv2,payments:pgPay,suppliers:pgSuppliers,purchase_orders:pgPO,claim_forms:pgClaimForms,inv_adjustments:pgInvAdj,discrepancies:pgDisc,reports:pgRep,staff:pgStaff,settings:pgSettings};
+  const map={dashboard:pgDash,inventory:pgInv,items_master:pgItems,item_inquiry:pgItemInquiry,parts_book:pgPartsBook,service_book:pgServiceBook,customers:pgCust,quotes:pgQuotes,orders:pgOrders,back_orders:pgBackOrders,picking:pgPicking,short_damaged:pgSD,delivery_notes:pgDN,invoices:pgInv2,payments:pgPay,suppliers:pgSuppliers,purchase_orders:pgPO,claim_forms:pgClaimForms,inv_adjustments:pgInvAdj,discrepancies:pgDisc,reports:pgRep,staff:pgStaff,settings:pgSettings};
   const fn=map[p];
   if(!fn){setHTML('<div class="alert alert-warning">Page not found</div>');return;}
   // Timeout safety — if page doesn't load in 10s, show retry
@@ -252,97 +253,76 @@ function sBadge(s){return{pending:'badge-info',picking:'badge-warning',picked:'b
 // DASHBOARD
 async function pgDash(){
   try{
-    // Role-specific minimal queries
-    const role=CS.role;
+    var role=CS.role;
     if(role==='picker'){
-      const {data:orders}=await SB.from('orders').select('id,status,customer_id,date').eq('status','picking').limit(10);
-      setHTML(`<div class="page-hdr"><div class="page-title">Picking Dashboard</div></div>
-      <div class="metric" style="max-width:300px"><div class="metric-label">Orders Waiting to Pick</div><div class="metric-value" style="color:${(orders||[]).length?'#e53e3e':'#38a169'}">${(orders||[]).length}</div></div>
-      ${(orders||[]).length?'<div class="alert alert-warning" style="margin-top:14px">📦 Go to <b>Picking Queue</b> to start picking!</div>':'<div class="alert alert-success" style="margin-top:14px">✅ No items to pick right now</div>'}`);
-      return;
+      var ord=await SB.from('orders').select('id,status').eq('status','picking').limit(10);
+      var orders=ord.data||[];
+      var html='<div class="page-hdr"><div class="page-title">Picking Dashboard</div></div>';
+      html+='<div class="metric" style="max-width:300px"><div class="metric-label">Orders Waiting</div>';
+      html+='<div class="metric-value" style="color:'+(orders.length?'#e53e3e':'#38a169')+'">'+orders.length+'</div></div>';
+      html+=orders.length?'<div class="alert alert-warning" style="margin-top:14px">Go to Picking Queue to start!</div>':'<div class="alert alert-success" style="margin-top:14px">No items to pick right now</div>';
+      setHTML(html);return;
     }
     if(role==='cashier'){
-      const {data:invs}=await SB.from('invoices').select('*').eq('status','unpaid').limit(20);
-      const tot=(invs||[]).reduce((s,i)=>s+i.total,0);
-      setHTML(`<div class="page-hdr"><div class="page-title">Cashier Dashboard</div></div>
-      <div class="grid2" style="max-width:500px">
-        <div class="metric"><div class="metric-label">Unpaid Invoices</div><div class="metric-value" style="color:#e53e3e">${(invs||[]).length}</div></div>
-        <div class="metric"><div class="metric-label">Outstanding Amount</div><div class="metric-value" style="font-size:16px;color:#e53e3e">${AED(tot)}</div></div>
-      </div>
-      ${(invs||[]).length?'<div class="alert alert-warning" style="margin-top:14px">💵 Go to <b>Payments</b> to collect payments</div>':'<div class="alert alert-success" style="margin-top:14px">✅ All payments collected!</div>'}`);
-      return;
+      var invR=await SB.from('invoices').select('*').eq('status','unpaid').limit(20);
+      var invs=invR.data||[];
+      var tot=invs.reduce(function(s,i){return s+i.total;},0);
+      var html='<div class="page-hdr"><div class="page-title">Cashier Dashboard</div></div>';
+      html+='<div class="grid2" style="max-width:500px">';
+      html+='<div class="metric"><div class="metric-label">Unpaid Invoices</div><div class="metric-value" style="color:#e53e3e">'+invs.length+'</div></div>';
+      html+='<div class="metric"><div class="metric-label">Outstanding</div><div class="metric-value" style="font-size:16px;color:#e53e3e">'+AED(tot)+'</div></div></div>';
+      html+=invs.length?'<div class="alert alert-warning" style="margin-top:14px">Go to Payments to collect</div>':'<div class="alert alert-success" style="margin-top:14px">All payments collected!</div>';
+      setHTML(html);return;
     }
     if(role==='ordering'||role==='parts_supervisor'){
-      const [{data:pos},{data:items}]=await Promise.all([
-        SB.from('purchase_orders').select('id,status,supplier,date').order('created_at',{ascending:false}).limit(5),
-        SB.from('items').select('id,name,qty,reorder_level').lte('qty','reorder_level' ).limit(10)
-      ]);
-      const ls=(items||[]).filter(i=>i.qty<=i.reorder_level);
-      setHTML(`<div class="page-hdr"><div class="page-title">Ordering Dashboard</div></div>
-      <div class="grid2">
-        <div class="metric"><div class="metric-label">Pending POs</div><div class="metric-value">${(pos||[]).filter(p=>p.status==='pending').length}</div></div>
-        <div class="metric"><div class="metric-label">Low Stock Items</div><div class="metric-value" style="color:${ls.length?'#e53e3e':'#38a169'}">${ls.length}</div></div>
-      </div>
-      ${ls.length?`<div class="card"><div class="card-title">Items to Reorder</div>${ls.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>${i.name}</span><span class="badge badge-danger">Qty: ${i.qty}</span></div>`).join('')}</div>`:''}
-      <div class="card"><div class="card-title">Recent Purchase Orders</div>${(pos||[]).length?pos.map(p=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span><b>${p.id}</b> — ${p.supplier||'—'}</span><span class="badge ${sBadge(p.status)}">${p.status}</span></div>`).join(''):'<div style="color:#718096;padding:10px">No POs yet</div>'}</div>`);
-      return;
+      var r1=await SB.from('purchase_orders').select('id,status,supplier,date').order('created_at',{ascending:false}).limit(5);
+      var r2=await SB.from('items').select('id,name,qty,reorder_level');
+      var pos=r1.data||[]; var items=r2.data||[];
+      var ls=items.filter(function(i){return i.qty<=(i.reorder_level||0)&&(i.reorder_level||0)>0;});
+      var html='<div class="page-hdr"><div class="page-title">Ordering Dashboard</div></div>';
+      html+='<div class="grid2"><div class="metric"><div class="metric-label">Pending POs</div><div class="metric-value">'+pos.filter(function(p){return p.status==='pending';}).length+'</div></div>';
+      html+='<div class="metric"><div class="metric-label">Low Stock</div><div class="metric-value" style="color:'+(ls.length?'#e53e3e':'#38a169')+'">'+ls.length+'</div></div></div>';
+      if(ls.length){
+        html+='<div class="card"><div class="card-title">Items to Reorder</div>';
+        ls.forEach(function(i){html+='<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>'+i.name+'</span><span class="badge badge-danger">Qty: '+i.qty+'</span></div>';});
+        html+='</div>';
+      }
+      html+='<div class="card"><div class="card-title">Recent POs</div>';
+      if(pos.length){pos.forEach(function(p){html+='<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span><b>'+p.id+'</b></span><span class="badge '+sBadge(p.status)+'">'+p.status+'</span></div>';});}
+      else{html+='<div style="color:#718096;padding:10px">No POs yet</div>';}
+      html+='</div>';
+      setHTML(html);return;
     }
-    if(role==='store_supervisor'){
-      const [{data:sd},{data:items}]=await Promise.all([
-        SB.from('short_damaged').select('*').order('created_at',{ascending:false}).limit(5),
-        SB.from('items').select('id,name,qty,reorder_level')
-      ]);
-      const ls=(items||[]).filter(i=>i.qty<=i.reorder_level);
-      setHTML(`<div class="page-hdr"><div class="page-title">Store Supervisor Dashboard</div></div>
-      <div class="grid2">
-        <div class="metric"><div class="metric-label">Low Stock Items</div><div class="metric-value" style="color:${ls.length?'#e53e3e':'#38a169'}">${ls.length}</div></div>
-        <div class="metric"><div class="metric-label">Recent Short/Damaged</div><div class="metric-value text-danger">${(sd||[]).length}</div></div>
-      </div>
-      ${ls.length?`<div class="card"><div class="card-title">Low Stock Alert</div>${ls.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>${i.name}</span><span class="badge badge-danger">Qty: ${i.qty}</span></div>`).join('')}</div>`:''}`);
-      return;
-    }
-    // Owner / Manager / Salesperson — full dashboard
-    const [{data:items},{data:orders},{data:invs},{data:custs}]=await Promise.all([
-      SB.from('items').select('id,name,qty,cost,reorder_level'),
-      SB.from('orders').select('id,status,customer_id,total,date').order('created_at',{ascending:false}).limit(5),
-      SB.from('invoices').select('id,total,status'),
-      SB.from('customers').select('id,name,type,balance,credit_limit')
-    ]);
-    const sv=(items||[]).reduce((s,i)=>s+i.qty*i.cost,0);
-    const tr=(invs||[]).reduce((s,i)=>s+i.total,0);
-    const ls=(items||[]).filter(i=>i.qty<=i.reorder_level);
-    if(role==='owner'){
-      setHTML(`<div class="page-hdr"><div class="page-title">👑 Owner Dashboard</div></div>
-      <div class="grid4">
-        <div class="metric"><div class="metric-label">Total Stock Value</div><div class="metric-value" style="font-size:17px;color:#185FA5">${AED(sv)}</div><div class="metric-sub">At cost price</div></div>
-        <div class="metric"><div class="metric-label">Total Revenue</div><div class="metric-value" style="font-size:17px;color:#38a169">${AED(tr)}</div></div>
-        <div class="metric"><div class="metric-label">Customers</div><div class="metric-value">${(custs||[]).length}</div></div>
-        <div class="metric"><div class="metric-label">Low Stock Items</div><div class="metric-value" style="color:${ls.length?'#e53e3e':'#38a169'}">${ls.length}</div></div>
-      </div>
-      <div class="grid2">
-        <div class="card"><div class="card-title">Low Stock Alert</div>${ls.length?ls.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>${i.name}</span><span class="badge badge-danger">Qty:${i.qty}/Min:${i.reorder_level}</span></div>`).join(''):'<div class="empty-state" style="padding:20px">✅ All stocked</div>'}</div>
-        <div class="card"><div class="card-title">Credit Balances</div>${(custs||[]).filter(c=>c.type==='Credit').map(c=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>${c.name}</span><span class="badge ${c.balance>=c.credit_limit?'badge-danger':c.balance/c.credit_limit>0.7?'badge-warning':'badge-success'}">${AED(c.balance)}/${AED(c.credit_limit)}</span></div>`).join('')||'<div style="color:#718096;padding:10px">No credit customers</div>'}</div>
-      </div>`);
-      return;
-    }
-    // Manager / Salesperson
-    setHTML(`<div class="page-hdr"><div class="page-title">Dashboard</div></div>
-    <div class="grid4">
-      <div class="metric"><div class="metric-label">Stock Value</div><div class="metric-value" style="font-size:16px">${AED(sv)}</div></div>
-      <div class="metric"><div class="metric-label">Open Orders</div><div class="metric-value">${(orders||[]).filter(o=>['pending','picking'].includes(o.status)).length}</div></div>
-      <div class="metric"><div class="metric-label">Low Stock</div><div class="metric-value" style="color:${ls.length?'#e53e3e':'#38a169'}">${ls.length}</div></div>
-      <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value" style="font-size:16px">${AED(tr)}</div></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><div class="card-title">Recent Orders</div><div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Amount</th></tr></thead><tbody>
-      ${(orders||[]).map(o=>`<tr><td><b>${o.id}</b></td><td>${(custs||[]).find(c=>c.id===o.customer_id)?.name||'—'}</td><td><span class="badge ${sBadge(o.status)}">${o.status}</span></td><td>${AED(o.total)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#718096;padding:20px">No orders yet</td></tr>'}
-      </tbody></table></div></div>
-      <div class="card"><div class="card-title">Low Stock</div>${ls.length?ls.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>${i.name}</span><span class="badge badge-danger">${i.qty} left</span></div>`).join(''):'<div class="empty-state" style="padding:20px">✅ All stocked</div>'}</div>
-    </div>`);
-  } catch(err){
-    setHTML(`<div class="page-hdr"><div class="page-title">Dashboard</div></div>
-    <div class="alert alert-warning">⚠ Could not load dashboard data. Check internet connection.<br><small style="color:#718096">${err.message||''}</small></div>
-    <button class="btn btn-primary" onclick="pgDash()">🔄 Retry</button>`);
+    var r1=await SB.from('items').select('id,name,qty,cost,reorder_level,booked_qty');
+    var r2=await SB.from('orders').select('id,status,customer_id,total,date').order('created_at',{ascending:false}).limit(5);
+    var r3=await SB.from('invoices').select('id,total,status');
+    var r4=await SB.from('customers').select('id,name,type,balance,credit_limit');
+    var items=r1.data||[]; var orders=r2.data||[]; var invs=r3.data||[]; var custs=r4.data||[];
+    var sv=items.reduce(function(s,i){return s+i.qty*i.cost;},0);
+    var tr=invs.reduce(function(s,i){return s+i.total;},0);
+    var ls=items.filter(function(i){return i.qty<=(i.reorder_level||0)&&(i.reorder_level||0)>0;});
+    var html='<div class="page-hdr"><div class="page-title">'+(role==='owner'?'👑 Owner':'')+'Dashboard</div></div>';
+    html+='<div class="grid4">';
+    html+='<div class="metric"><div class="metric-label">Stock Value</div><div class="metric-value" style="font-size:17px;color:#185FA5">'+AED(sv)+'</div></div>';
+    html+='<div class="metric"><div class="metric-label">Revenue</div><div class="metric-value" style="font-size:17px;color:#38a169">'+AED(tr)+'</div></div>';
+    html+='<div class="metric"><div class="metric-label">Customers</div><div class="metric-value">'+custs.length+'</div></div>';
+    html+='<div class="metric"><div class="metric-label">Low Stock</div><div class="metric-value" style="color:'+(ls.length?'#e53e3e':'#38a169')+'">'+ls.length+'</div></div>';
+    html+='</div><div class="grid2">';
+    html+='<div class="card"><div class="card-title">Recent Orders</div><div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Amount</th></tr></thead><tbody>';
+    if(orders.length){
+      orders.forEach(function(o){
+        var cname=(custs.find(function(c){return c.id===o.customer_id;})||{name:'—'}).name;
+        html+='<tr><td><b>'+o.id+'</b></td><td>'+cname+'</td><td><span class="badge '+sBadge(o.status)+'">'+o.status+'</span></td><td>'+AED(o.total)+'</td></tr>';
+      });
+    }else{html+='<tr><td colspan="4" style="text-align:center;color:#718096;padding:20px">No orders yet</td></tr>';}
+    html+='</tbody></table></div></div>';
+    html+='<div class="card"><div class="card-title">Low Stock</div>';
+    if(ls.length){ls.forEach(function(i){html+='<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;font-size:13px"><span>'+i.name+'</span><span class="badge badge-danger">'+i.qty+' left</span></div>';});}
+    else{html+='<div class="empty-state" style="padding:20px">All stocked</div>';}
+    html+='</div></div>';
+    setHTML(html);
+  }catch(err){
+    setHTML('<div class="alert alert-warning">Could not load dashboard.<br><small>'+( err.message||'')+'</small></div><button class="btn btn-primary" onclick="pgDash()">Retry</button>');
   }
 }
 
@@ -901,36 +881,35 @@ async function saveEditCost(id){
 
 // CUSTOMERS
 async function pgCust(){
-  let custs=[];
-  try{const r=await SB.from('customers').select('*').order('name');custs=r.data||[];}catch(e){setHTML('<div class="alert alert-warning">Error loading customers: '+e.message+'</div><button class="btn btn-primary" onclick="pgCust()">🔄 Retry</button>');return;}
-  const canEdit=['owner','manager'].includes(CS.role);
-  setHTML(`<div class="page-hdr"><div class="page-title">Customers</div>${canEdit?'<button class="btn btn-primary" onclick="showAddCust()">+ New Customer</button>':''}</div>
-  <div class="toolbar"><input placeholder="Search customers..." oninput="filterRows(this.value,'custTbl')" style="max-width:220px"></div>
-  <div class="tbl-wrap"><table id="custTbl"><thead><tr><th>ID</th><th>Name</th><th>Area / City</th><th>Tax No</th><th>Type</th><th>Credit Limit</th><th>Pay Days</th><th>Balance</th><th>Status</th><th></th></tr></thead>
-  <tbody>${(custs||[]).map(c=>{
-    const ov=c.balance>=c.credit_limit&&c.credit_limit>0;
-    const hasCash=c.allow_cash;
-    const hasCredit=c.credit_limit>0;
-    return `<tr>
-      <td style="font-size:11px;color:#718096">${c.id}</td>
-      <td>
-        <b>${c.name}</b>
-        ${c.phone?`<br><span style="font-size:11px;color:#a0aec0">📞 ${c.phone}</span>`:''}
-        ${c.po_box?`<br><span style="font-size:11px;color:#a0aec0">P.O Box: ${c.po_box}</span>`:''}
-      </td>
-      <td style="font-size:12px">${[c.area,c.city,c.country].filter(Boolean).join(', ')||'—'}</td>
-      <td style="font-size:12px;color:#718096">${c.tax_no||'—'}</td>
-      <td>
-        ${hasCash?'<span class="badge badge-gray" style="margin:1px">Cash</span>':''}
-        ${hasCredit?'<span class="badge badge-info" style="margin:1px">Credit</span>':''}
-      </td>
-      <td>${hasCredit?AED(c.credit_limit):'—'}</td>
-      <td>${hasCredit?c.payment_days+' days':'—'}</td>
-      <td class="${ov?'text-danger':''}">${hasCredit?AED(c.balance):'—'}</td>
-      <td>${ov?'<span class="badge badge-danger">⚠ Limit Exceeded</span>':hasCredit?'<span class="badge badge-success">Active</span>':'<span class="badge badge-gray">Cash</span>'}</td>
-      <td><button class="btn btn-sm" onclick="showEditCust('${c.id}')">Edit</button></td>
-    </tr>`;
-  }).join('')}</tbody></table></div>`);
+  var custs=[];
+  try{var r=await SB.from('customers').select('*').order('name');custs=r.data||[];}
+  catch(e){setHTML('<div class="alert alert-warning">Error: '+e.message+'</div><button class="btn btn-primary" onclick="pgCust()">Retry</button>');return;}
+  var canEdit=['owner','manager'].includes(CS.role);
+  var html='<div class="page-hdr"><div class="page-title">Customers</div>';
+  if(canEdit)html+='<button class="btn btn-primary" onclick="showAddCust()">+ New Customer</button>';
+  html+='</div><div class="toolbar"><input placeholder="Search..." oninput="filterRows(this.value,\'custTbl\')" style="max-width:220px"></div>';
+  html+='<div class="tbl-wrap"><table id="custTbl"><thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Area</th><th>Balance</th><th>Credit Limit</th><th>Status</th><th></th></tr></thead><tbody>';
+  if(!custs.length){html+='<tr><td colspan="8" style="text-align:center;padding:30px;color:#718096">No customers yet</td></tr>';}
+  else{
+    custs.forEach(function(c){
+      html+='<tr>';
+      html+='<td><b>'+c.name+'</b>';
+      if(c.phone)html+='<br><span style="font-size:11px;color:#a0aec0">'+c.phone+'</span>';
+      if(c.po_box)html+='<br><span style="font-size:11px;color:#a0aec0">P.O Box: '+c.po_box+'</span>';
+      html+='</td>';
+      html+='<td><span class="badge '+(c.type==='Credit'?'badge-info':'badge-success')+'">'+c.type+'</span></td>';
+      html+='<td style="font-size:12px">'+(c.phone||'—')+'</td>';
+      html+='<td style="font-size:12px">'+(c.area||'—')+'</td>';
+      html+='<td style="color:'+(c.balance>0?'#e53e3e':'#38a169')+'">'+AED(c.balance||0)+'</td>';
+      html+='<td>'+AED(c.credit_limit||0)+'</td>';
+      html+='<td><span class="badge '+(c.active!==false?'badge-success':'badge-danger')+'">'+(c.active!==false?'Active':'Inactive')+'</span></td>';
+      html+='<td>';
+      if(canEdit)html+='<button class="btn btn-sm" onclick="showEditCust(\''+c.id+'\')">Edit</button>';
+      html+='</td></tr>';
+    });
+  }
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 
 function showAddCust(){
@@ -1074,84 +1053,109 @@ window._qPriceMap={};
 const DISC_LIMIT={owner:100,manager:40,store_supervisor:0,parts_supervisor:0,salesperson:15,ordering:0,picker:0,cashier:0,driver:0};
 
 async function pgQuotes(){
-  const [{data:quotes},{data:custs},{data:items}]=await Promise.all([SB.from('quotes').select('*,quote_items(*)').order('created_at',{ascending:false}),SB.from('customers').select('*'),SB.from('items').select('*')]);
+  const [{data:quotes},{data:items},{data:custs},{data:sets}]=await Promise.all([
+    SB.from('quotes').select('*').order('created_at',{ascending:false}),
+    SB.from('items').select('id,name,part_no,qty,booked_qty'),
+    SB.from('customers').select('*'),
+    SB.from('settings').select('*')
+  ]);
   const maxDisc=DISC_LIMIT[CS.role]||0;
-  setHTML(`<div class="page-hdr"><div class="page-title">Quotes</div><button class="btn btn-primary" onclick="showNewQuote()">+ New Quote</button></div>
-  ${(quotes||[]).length===0?'<div class="card"><div class="empty-state"><div style="font-size:32px">📝</div><p>No quotes yet. Click + New Quote to start!</p></div></div>':''}
-  ${(quotes||[]).map(q=>{
+  const canCreate=['owner','manager','salesperson'].includes(CS.role);
+
+  let html='<div class="page-hdr"><div class="page-title">Quotes</div>';
+  if(canCreate) html+='<button class="btn btn-primary" onclick="showNewQuote()">+ New Quote</button>';
+  html+='</div>';
+
+  if(!(quotes||[]).length){
+    html+='<div class="card"><div class="empty-state"><p>No quotes yet</p></div></div>';
+    setHTML(html); return;
+  }
+
+  for(const q of (quotes||[])){
+    const {data:qi}=await SB.from('quote_items').select('*').eq('quote_id',q.id);
     const c=custs?.find(x=>x.id===q.customer_id);
-    const qi=q.quote_items||[];
     const cur=q.currency||'AED';
-    const taxPct=q.tax_pct||0;
     const FMT=n=>FMTC(n,cur);
-    const subtotal=qi.reduce((s,i)=>s+i.qty*i.price*(1-(i.discount_pct||0)/100),0);
+    const taxPct=q.tax_pct||0;
+    const subtotal=(qi||[]).reduce((s,i)=>s+i.qty*i.price*(1-(i.discount_pct||0)/100),0);
     const disc=q.discount_pct||0;
     const discAmt=subtotal*disc/100;
-    const netAfterDisc=subtotal-discAmt;
-    const taxAmt=netAfterDisc*taxPct/100;
-    const grandTotal=netAfterDisc+taxAmt;
-    let hasIssue=false;
-    const rows=qi.map(i=>{
+    const taxAmt=(subtotal-discAmt)*taxPct/100;
+    const netTotal=subtotal-discAmt+taxAmt;
+
+    const statusBadge=q.status==='pending'?'badge-warning':q.status==='converted'?'badge-success':'badge-gray';
+    html+='<div class="card">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+    html+='<div>';
+    html+='<div style="font-size:17px;font-weight:800">'+q.id+'</div>';
+    html+='<div style="font-size:13px;color:#718096">'+(c?.name||'Walk-in')+' · '+q.date+'</div>';
+    html+='<div style="display:flex;gap:6px;margin-top:4px">';
+    html+='<span class="badge badge-info">'+cur+'</span>';
+    if(taxPct>0) html+='<span class="badge badge-warning">Tax: '+taxPct+'%</span>';
+    html+='</div></div>';
+    html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+    html+='<span class="badge '+statusBadge+'">'+q.status+'</span>';
+    if(q.status==='pending'){
+      html+='<button class="btn btn-sm" onclick="editQuote(\''+q.id+'\')">✏️ Edit</button>';
+      if(maxDisc>0) html+='<button class="btn btn-sm btn-warning" onclick="applyQuoteDisc(\''+q.id+'\','+subtotal+')">% Discount</button>';
+      html+='<button class="btn btn-primary btn-sm" onclick="printQuote(\''+q.id+'\')">🖨 Print</button>';
+      html+='<button class="btn btn-primary btn-sm" onclick="cvtOrder(\''+q.id+'\')">→ Order</button>';
+      html+='<button class="btn btn-sm btn-danger" onclick="cancelQ(\''+q.id+'\')">Cancel</button>';
+    } else {
+      html+='<button class="btn btn-sm" onclick="printQuote(\''+q.id+'\')">🖨 Print</button>';
+    }
+    if(['owner','manager'].includes(CS.role)&&q.status!=='converted'){
+      html+='<button class="btn btn-sm" onclick="deleteQuote(\''+q.id+'\')" style="background:#fff0f0;color:#e53e3e;border-color:#fc8181" title="Delete">🗑</button>';
+    }
+    html+='</div></div>';
+
+    // Items table
+    html+='<div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Line Disc</th><th>Amount</th><th>Stock</th>';
+    if(q.status==='pending') html+='<th></th>';
+    html+='</tr></thead><tbody>';
+
+    (qi||[]).forEach(function(i){
       const itm=items?.find(x=>x.id===i.item_id);
       const av=(itm?.qty||0)-(itm?.booked_qty||0);
-      if(av<i.qty)hasIssue=true;
       const lineDisc=i.discount_pct||0;
       const lineTotal=i.qty*i.price*(1-lineDisc/100);
-      return `<tr${av<i.qty?' style="background:#fff5f5"':''}>
-        <td><b>${itm?.name||i.item_id}</b><br><span style="font-size:11px;color:#718096">${itm?.part_no||''}</span></td>
-        <td>${i.qty}</td>
-        <td>${FMT(i.price)}</td>
-        <td>${lineDisc>0?`<span class="badge badge-warning">${lineDisc}% off</span>`:'—'}</td>
-        <td style="font-weight:700">${FMT(lineTotal)}</td>
-        <td>${av<i.qty?`<span class="badge badge-danger">🔴 Short ${i.qty-av}</span>${i.eta?`<br><span style="font-size:11px;color:#d69e2e">ETA: ${i.eta}</span>`:'<br><span style="font-size:11px;color:#e53e3e">No ETA</span>'}`:' <span class="badge badge-success">OK</span>'}</td>
-      </tr>`;
-    }).join('');
-    return `<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
-        <div>
-          <div style="font-size:16px;font-weight:800">${q.id}</div>
-          <div style="font-size:13px;color:#718096">${c?.name||'—'} · ${q.date}</div>
-          <div style="font-size:12px;margin-top:2px">
-            <span class="badge badge-gray">${cur}</span>
-            ${taxPct>0?`<span class="badge badge-warning" style="margin-left:4px">Tax: ${taxPct}%</span>`:''}
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span class="badge ${q.status==='pending'?'badge-warning':q.status==='converted'?'badge-success':'badge-gray'}">${q.status}</span>
-          ${q.status==='pending'?`
-            <button class="btn btn-sm" onclick="editQuote('${q.id}')">✏️ Edit</button>
-            ${maxDisc>0?`<button class="btn btn-sm btn-warning" onclick="applyQuoteDisc('${q.id}',${subtotal})">% Discount</button>`:''}
-            <button class="btn btn-primary btn-sm" onclick="printQuote('${q.id}')">🖨 Print</button>
-            <button class="btn btn-primary btn-sm" onclick="cvtOrder('${q.id}')">→ Order</button>
-            <button class="btn btn-sm btn-danger" onclick="cancelQ('${q.id}')">Cancel</button>
-          `:`<button class="btn btn-sm" onclick="printQuote('${q.id}')">🖨 Print</button>`}
-          ${['owner','manager'].includes(CS.role)&&q.status!=='converted'?`<button class="btn btn-sm" onclick="deleteQuote('${q.id}')" style="background:#fff0f0;color:#e53e3e;border-color:#fc8181" title="Permanently delete">🗑</button>`:''}
-        </div>
-      </div>
-      <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Line Disc</th><th>Amount</th><th>Stock</th>${q.status==='pending'?'<th style="width:40px"></th>':''}</tr></thead><tbody>${qi.map(i=>{
-        const itm=items?.find(x=>x.id===i.item_id);
-        const av=(itm?.qty||0)-(itm?.booked_qty||0);
-        const lineDisc=i.discount_pct||0;
-        const lineTotal=i.qty*i.price*(1-lineDisc/100);
-        return `<tr${av<i.qty?' style="background:#fff5f5"':''}>
-          <td><b>${itm?.name||i.item_id}</b><br><span style="font-size:11px;color:#718096">${itm?.part_no||''}</span></td>
-          <td>${i.qty}</td>
-          <td>${FMT(i.price)}</td>
-          <td>${lineDisc>0?`<span class="badge badge-warning">${lineDisc}% off</span>`:'—'}</td>
-          <td style="font-weight:700">${FMT(lineTotal)}</td>
-          <td>${av<i.qty?`<span class="badge badge-danger">🔴 Short ${i.qty-av}</span>${i.eta?`<br><span style="font-size:11px;color:#d69e2e">ETA: ${i.eta}</span>`:'<br><span style="font-size:11px;color:#e53e3e">No ETA</span>'}`:' <span class="badge badge-success">OK</span>'}</td>
-          ${q.status==='pending'?`<td><button class="btn btn-sm btn-danger" onclick="deleteQLine('${i.id}','${q.id}')">✕</button></td>`:''}
-        </tr>`;
-      }).join('')}</tbody></table></div>
-      <div style="text-align:right;margin-top:10px;padding:10px;background:#f8fafc;border-radius:8px">
-        <div style="font-size:13px;color:#718096">Total Amount: ${FMT(subtotal)}</div>
-        ${disc>0?`<div style="font-size:13px;color:#e53e3e">Less Discount (${disc}%): -${FMT(discAmt)}</div><div style="font-size:13px;color:#718096">Gross Amount: ${FMT(netAfterDisc)}</div>`:''}
-        ${taxPct>0?`<div style="font-size:13px;color:#d69e2e">VAT/Tax (${taxPct}%): +${FMT(taxAmt)}</div>`:''}
-        <div style="font-size:16px;font-weight:800;color:#185FA5;margin-top:4px">Net Amount: ${FMT(grandTotal)}</div>
-      </div>
-      ${hasIssue?'<div class="alert alert-warning" style="margin-bottom:0;margin-top:10px">⚠ Some items have insufficient stock</div>':''}
-    </div>`;
-  }).join('')}`);
+      const rowBg=av<i.qty?'style="background:#fff5f5"':'';
+      html+='<tr '+rowBg+'>';
+      html+='<td><b>'+(itm?.name||i.item_id)+'</b><br><span style="font-size:11px;color:#718096">'+(itm?.part_no||i.coo||'')+'</span>';
+      if(i.coo) html+='<span class="badge" style="background:#e9d8fd;color:#553c9a;font-size:10px;margin-left:4px">'+i.coo+'</span>';
+      html+='</td>';
+      html+='<td>'+i.qty+'</td>';
+      html+='<td>'+FMT(i.price)+'</td>';
+      html+='<td>';
+      if(lineDisc>0) html+='<span class="badge badge-warning">'+lineDisc+'% off</span>';
+      else html+='—';
+      html+='</td>';
+      html+='<td><b>'+FMT(lineTotal)+'</b></td>';
+      html+='<td>';
+      if(av<i.qty){
+        html+='<span class="badge badge-danger">Short '+(i.qty-av)+'</span>';
+        if(i.eta) html+='<br><span style="font-size:11px;color:#d69e2e">ETA: '+i.eta+'</span>';
+        else html+='<br><span style="font-size:11px;color:#e53e3e">No ETA</span>';
+      } else {
+        html+='<span class="badge badge-success">OK</span>';
+      }
+      html+='</td>';
+      if(q.status==='pending'){
+        html+='<td><button class="btn btn-sm btn-danger" onclick="deleteQLine(\''+i.id+'\',\''+q.id+'\')">✕</button></td>';
+      }
+      html+='</tr>';
+    });
+
+    html+='</tbody></table></div>';
+    // Totals
+    html+='<div style="text-align:right;margin-top:8px;font-size:13px">';
+    html+='<div>Total Amount: <b>'+FMT(subtotal)+'</b></div>';
+    if(disc>0) html+='<div style="color:#e53e3e">Less Discount ('+disc+'%): -'+FMT(discAmt)+'</div>';
+    if(taxPct>0) html+='<div style="color:#d69e2e">VAT/Tax ('+taxPct+'%): +'+FMT(taxAmt)+'</div>';
+    html+='<div style="font-size:16px;font-weight:800;color:#185FA5">Net Amount: '+FMT(netTotal)+'</div>';
+    html+='</div></div>';
+  }
+  setHTML(html);
 }
 
 function applyQuoteDisc(qid,subtotal){
@@ -1201,15 +1205,15 @@ async function printQuote(qid){
     <div class="modal-title">🖨 Print Quote — ${qid}</div>
     <div style="font-size:13px;color:#718096;margin-bottom:14px">Select what to show on the printed quote:</div>
     <div style="display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:16px">
-      <div onclick="doPrintQuote('${qid}','none')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background=''">
+      <div onclick="doPrintQuote('${qid}','none')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor=\'#e2e8f0\';this.style.background=''">
         <div style="font-weight:700;margin-bottom:3px">📄 Without Part Number</div>
         <div style="font-size:12px;color:#718096">Only item name, qty and price — no part numbers shown</div>
       </div>
-      <div onclick="doPrintQuote('${qid}','supplier')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background=''">
+      <div onclick="doPrintQuote('${qid}','supplier')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor=\'#e2e8f0\';this.style.background=''">
         <div style="font-weight:700;margin-bottom:3px">🔢 With Supplier Part Number</div>
         <div style="font-size:12px;color:#718096">Shows original supplier/manufacturer part numbers</div>
       </div>
-      <div onclick="doPrintQuote('${qid}','ours')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background=''">
+      <div onclick="doPrintQuote('${qid}','ours')" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='#185FA5';this.style.background='#ebf8ff'" onmouseout="this.style.borderColor=\'#e2e8f0\';this.style.background=''">
         <div style="font-weight:700;margin-bottom:3px">🏷 With Our Company Part Number</div>
         <div style="font-size:12px;color:#718096">Shows your internal APH-XXXXXX part numbers</div>
       </div>
@@ -1294,9 +1298,9 @@ async function doPrintQuote(qid,mode){
   </div>
   <div class="cust-box">
     <b>To:</b> ${cust?.name||'—'}<br>
-    ${addr?`<b>Address:</b> ${addr}<br>`:''}
-    ${cust?.tax_no?`<b>Tax/VAT Reg No:</b> ${cust.tax_no}<br>`:''}
-    ${cust?.phone?`<b>Phone:</b> ${cust.phone}`:''}
+    '+(addr?'<b>Address:</b> '+addr+'<br>':'')+'
+    '+(cust?.tax_no?'<b>Tax/VAT Reg No:</b> '+cust.tax_no+'<br>':'')+'
+    '+(cust?.phone?'<b>Phone:</b> '+cust.phone:'')+'
   </div>
   <table>
     <thead><tr><th style="text-align:center">Qty</th>${partHeader}<th>Description</th><th style="text-align:right">Unit Price</th><th style="text-align:center">Disc%</th><th style="text-align:right">Amount</th></tr></thead>
@@ -1305,8 +1309,8 @@ async function doPrintQuote(qid,mode){
 
   <div class="tot-section">
     <div class="tot-row"><span>Total Amount</span><span>${FMT(subtotal)}</span></div>
-    ${quoteDisc>0?`<div class="tot-row disc"><span>Less: Discount (${quoteDisc}%)</span><span>-${FMT(discAmt)}</span></div><div class="tot-row"><span>Gross Amount</span><span>${FMT(netAfterDisc)}</span></div>`:''}
-    ${taxPct>0?`<div class="tot-row tax"><span>VAT Amount (${taxPct}%)</span><span>${FMT(taxAmt)}</span></div>`:''}
+    '+(quoteDisc>0?'<div class="tot-row disc"><span>Less: Discount ('+quoteDisc+'%)</span><span>-'+FMT(discAmt)+'</span></div>':'')+
+    '+(taxPct>0?'<div class="tot-row tax"><span>VAT Amount ('+taxPct+'%)</span><span>'+FMT(taxAmt)+'</span></div>':'')+'
     <div class="tot-row grand"><span>Net Amount</span><span>${FMT(grandTotal)}</span></div>
     <div style="font-size:12px;color:#718096;margin-top:6px">Amount in ${curName}</div>
   </div>
@@ -1314,7 +1318,7 @@ async function doPrintQuote(qid,mode){
   <div style="margin-top:14px;font-size:12px;color:#718096">
     <b>Terms and Conditions:</b><br>
     • Prices are valid for 7 days from the date of quotation.<br>
-    • Delivery subject to stock availability.${taxPct>0?`<br>• VAT/Tax (${taxPct}%) is applicable as per local regulations.`:''}<br>
+    • Delivery subject to stock availability.'+(taxPct>0?'<br>• VAT/Tax ('+taxPct+'%) is applicable as per local regulations.':'')+'<br>
     • Payment terms as per agreement.
   </div>
 
@@ -2414,15 +2418,19 @@ async function confPick(oid,oiid,itemId,ordered){
 
 // SHORT & DAMAGED
 async function pgSD(){
-  const [{data:sd},{data:items}]=await Promise.all([SB.from('short_damaged').select('*').order('created_at',{ascending:false}),SB.from('items').select('id,name')]);
-  setHTML(`<div class="page-hdr"><div class="page-title">Short & Damaged</div></div>
-  <div class="grid3">
-    <div class="metric"><div class="metric-label">Total Records</div><div class="metric-value">${(sd||[]).length}</div></div>
-    <div class="metric"><div class="metric-label">Total Short</div><div class="metric-value text-danger">${(sd||[]).reduce((s,r)=>s+r.short_qty,0)}</div></div>
-    <div class="metric"><div class="metric-label">Total Damaged</div><div class="metric-value text-danger">${(sd||[]).reduce((s,r)=>s+r.damaged_qty,0)}</div></div>
-  </div>
-  <div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Item</th><th>Ordered</th><th>Confirmed</th><th>Short</th><th>Damaged</th><th>Date</th></tr></thead>
-  <tbody>${(sd||[]).length===0?'<tr><td colspan="7" style="text-align:center;padding:30px;color:#718096">No records</td></tr>':(sd||[]).map(r=>{const it=items?.find(i=>i.id===r.item_id);return `<tr><td><b>${r.order_id}</b></td><td>${it?.name||r.item_id}</td><td>${r.ordered_qty}</td><td class="text-success">${r.confirmed_qty}</td><td class="${r.short_qty>0?'text-danger':''}">${r.short_qty}</td><td class="${r.damaged_qty>0?'text-danger':''}">${r.damaged_qty}</td><td>${r.date}</td></tr>`;}).join('')}</tbody></table></div>`);
+  var r=await SB.from('short_damaged').select('*,items(name,part_no)').order('created_at',{ascending:false});
+  var sd=r.data||[];
+  var html='<div class="page-hdr"><div class="page-title">Short & Damaged</div></div>';
+  html+='<div class="grid3" style="margin-bottom:14px">';
+  html+='<div class="metric"><div class="metric-label">Total Reports</div><div class="metric-value">'+sd.length+'</div></div>';
+  html+='<div class="metric"><div class="metric-label">Short Items</div><div class="metric-value text-danger">'+sd.reduce(function(s,i){return s+(i.short_qty||0);},0)+'</div></div>';
+  html+='<div class="metric"><div class="metric-label">Damaged Items</div><div class="metric-value text-danger">'+sd.reduce(function(s,i){return s+(i.damaged_qty||0);},0)+'</div></div>';
+  html+='</div>';
+  html+='<div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Item</th><th>Ordered</th><th>Confirmed</th><th>Short</th><th>Damaged</th><th>Date</th></tr></thead><tbody>';
+  if(!sd.length){html+='<tr><td colspan="7" style="text-align:center;padding:30px;color:#718096">No short/damaged reports</td></tr>';}
+  else{sd.forEach(function(d){html+='<tr><td>'+d.order_id+'</td><td>'+(d.items?.name||d.item_id)+'<br><span style="font-size:11px;color:#718096">'+(d.items?.part_no||'')+'</span></td><td>'+d.ordered_qty+'</td><td class="text-success">'+d.confirmed_qty+'</td><td class="text-danger">'+( d.short_qty||0)+'</td><td class="text-danger">'+(d.damaged_qty||0)+'</td><td style="font-size:12px">'+d.date+'</td></tr>';});}
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 
 // DELIVERY NOTES
@@ -2611,10 +2619,21 @@ async function doPrintDN(dnid,oid,custId,withPrice){
 
 // INVOICES
 async function pgInv2(){
-  const [{data:invs},{data:custs}]=await Promise.all([SB.from('invoices').select('*').order('created_at',{ascending:false}),SB.from('customers').select('*')]);
-  setHTML(`<div class="page-hdr"><div class="page-title">Invoices</div></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Invoice</th><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th></th></tr></thead>
-  <tbody>${(invs||[]).length===0?'<tr><td colspan="7" style="text-align:center;padding:30px;color:#718096">No invoices yet</td></tr>':(invs||[]).map(inv=>{const c=custs?.find(x=>x.id===inv.customer_id);return `<tr><td><b>${inv.id}</b></td><td>${inv.order_id}</td><td>${c?.name||'—'}</td><td>${inv.date}</td><td><b>${AED(inv.total)}</b></td><td><span class="badge ${inv.status==='paid'?'badge-success':inv.status==='unpaid'?'badge-warning':'badge-gray'}">${inv.status}</span></td><td>${inv.status==='unpaid'?`<button class="btn btn-sm btn-success" onclick="mrkPaid('${inv.id}','${inv.customer_id}',${inv.total})">Mark Paid</button>`:'—'}</td></tr>`;}).join('')}</tbody></table></div>`);
+  var r1=await SB.from('invoices').select('*').order('created_at',{ascending:false});
+  var r2=await SB.from('customers').select('*');
+  var invs=r1.data||[]; var custs=r2.data||[];
+  var html='<div class="page-hdr"><div class="page-title">Invoices</div></div>';
+  html+='<div class="tbl-wrap"><table><thead><tr><th>Invoice ID</th><th>Customer</th><th>Order</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>';
+  if(!invs.length){html+='<tr><td colspan="7" style="text-align:center;padding:30px;color:#718096">No invoices yet</td></tr>';}
+  else{invs.forEach(function(inv){
+    var c=custs.find(function(x){return x.id===inv.customer_id;})||{name:'—'};
+    html+='<tr><td><b>'+inv.id+'</b></td><td>'+c.name+'</td><td>'+( inv.order_id||'—')+'</td><td>'+inv.date+'</td>';
+    html+='<td><b>'+AED(inv.total)+'</b></td>';
+    html+='<td><span class="badge '+(inv.status==='paid'?'badge-success':'badge-warning')+'">'+inv.status+'</span></td>';
+    html+='<td><button class="btn btn-sm" onclick="printInv(\''+inv.id+'\')">🖨 Print</button></td></tr>';
+  });}
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 
 async function makeInv(dnid,oid,custId){
@@ -2660,12 +2679,19 @@ async function mrkPaid(invId,custId,tot){
 
 // PAYMENTS
 async function pgPay(){
-  const [{data:invs},{data:custs}]=await Promise.all([SB.from('invoices').select('*').order('created_at',{ascending:false}),SB.from('customers').select('*')]);
-  const unpaid=(invs||[]).filter(i=>i.status==='unpaid');
-  setHTML(`<div class="page-hdr"><div class="page-title">Payments</div></div>
-  <div class="grid2"><div class="metric"><div class="metric-label">Total Outstanding</div><div class="metric-value text-danger" style="font-size:18px">${AED(unpaid.reduce((s,i)=>s+i.total,0))}</div></div><div class="metric"><div class="metric-label">Unpaid Invoices</div><div class="metric-value">${unpaid.length}</div></div></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th></th></tr></thead>
-  <tbody>${unpaid.length===0?'<tr><td colspan="5" style="text-align:center;padding:30px;color:#718096">✅ All collected</td></tr>':unpaid.map(inv=>{const c=custs?.find(x=>x.id===inv.customer_id);return `<tr><td><b>${inv.id}</b></td><td>${c?.name||'—'}</td><td><b>${AED(inv.total)}</b></td><td>${inv.date}</td><td><button class="btn btn-sm btn-success" onclick="mrkPaid('${inv.id}','${inv.customer_id}',${inv.total});pgPay()">Collect</button></td></tr>`;}).join('')}</tbody></table></div>`);
+  var r1=await SB.from('invoices').select('*').eq('status','unpaid').order('created_at',{ascending:false});
+  var r2=await SB.from('customers').select('*');
+  var unpaid=r1.data||[]; var custs=r2.data||[];
+  var html='<div class="page-hdr"><div class="page-title">Payments</div></div>';
+  html+='<div class="tbl-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Date</th><th>Action</th></tr></thead><tbody>';
+  if(!unpaid.length){html+='<tr><td colspan="5" style="text-align:center;padding:30px;color:#718096">No unpaid invoices</td></tr>';}
+  else{unpaid.forEach(function(inv){
+    var c=custs.find(function(x){return x.id===inv.customer_id;})||{name:'—'};
+    html+='<tr><td><b>'+inv.id+'</b></td><td>'+c.name+'</td><td><b style="color:#e53e3e">'+AED(inv.total)+'</b></td><td>'+inv.date+'</td>';
+    html+='<td><button class="btn btn-sm btn-success" onclick="collectPayment(this.dataset.iid,this.dataset.cid,' +inv.total+ ')" data-iid="'+inv.id+'" data-cid="'+inv.customer_id+'">Collect Payment</button></td></tr>';
+  });}
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 
 // ══════════════════════════════════════════
@@ -2674,20 +2700,22 @@ async function pgPay(){
 
 // ── SUPPLIER MASTER ──
 async function pgSuppliers(){
-  const {data:sups}=await SB.from('suppliers').select('*').order('name');
-  setHTML(`<div class="page-hdr"><div class="page-title">Supplier Master</div><button class="btn btn-primary" onclick="showAddSupplier()">+ New Supplier</button></div>
-  <div class="toolbar"><input placeholder="Search suppliers..." oninput="filterRows(this.value,'supTbl')" style="max-width:220px"></div>
-  <div class="tbl-wrap"><table id="supTbl"><thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Country</th><th>Payment Terms</th><th>Status</th><th></th></tr></thead>
-  <tbody>${(sups||[]).length===0?'<tr><td colspan="8" style="text-align:center;padding:30px;color:#718096">No suppliers yet</td></tr>':(sups||[]).map(s=>`<tr>
-    <td><b>${s.name}</b></td>
-    <td style="font-size:12px">${s.contact_person||'—'}</td>
-    <td style="font-size:12px">${s.phone||'—'}</td>
-    <td style="font-size:12px;color:#718096">${s.email||'—'}</td>
-    <td style="font-size:12px">${s.country||'UAE'}</td>
-    <td><span class="badge badge-info">${s.payment_terms||'Cash'}</span></td>
-    <td><span class="badge ${s.active?'badge-success':'badge-gray'}">${s.active?'Active':'Inactive'}</span></td>
-    <td><button class="btn btn-sm" onclick="showEditSupplier('${s.id}')">Edit</button></td>
-  </tr>`).join('')}</tbody></table></div>`);
+  var r=await SB.from('suppliers').select('*').order('name');
+  var sups=r.data||[];
+  var html='<div class="page-hdr"><div class="page-title">Supplier Master</div><button class="btn btn-primary" onclick="showAddSupplier()">+ New Supplier</button></div>';
+  html+='<div class="toolbar"><input placeholder="Search suppliers..." oninput="filterRows(this.value,\'supTbl\')" style="max-width:220px"></div>';
+  html+='<div class="tbl-wrap"><table id="supTbl"><thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Country</th><th>Payment Terms</th><th>Status</th><th></th></tr></thead><tbody>';
+  if(!sups.length){html+='<tr><td colspan="8" style="text-align:center;padding:30px;color:#718096">No suppliers yet</td></tr>';}
+  else{sups.forEach(function(s){
+    html+='<tr><td><b>'+s.name+'</b></td><td style="font-size:12px">'+(s.contact_person||'—')+'</td>';
+    html+='<td style="font-size:12px">'+(s.phone||'—')+'</td><td style="font-size:12px;color:#718096">'+(s.email||'—')+'</td>';
+    html+='<td style="font-size:12px">'+(s.country||'UAE')+'</td>';
+    html+='<td><span class="badge badge-info">'+(s.payment_terms||'Cash')+'</span></td>';
+    html+='<td><span class="badge '+(s.active?'badge-success':'badge-gray')+'">'+(s.active?'Active':'Inactive')+'</span></td>';
+    html+='<td><button class="btn btn-sm" onclick="showEditSupplier(\''+s.id+'\')">Edit</button></td></tr>';
+  });}
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 
 function showAddSupplier(){
@@ -3445,82 +3473,57 @@ async function saveDisc(poid){showClaimForm(poid);}
 // BACK ORDERS PAGE
 // ══════════════════════════════════════════
 async function pgBackOrders(){
-  try{
-    const [{data:bos},{data:items},{data:custs},{data:orders}]=await Promise.all([
-      SB.from('back_orders').select('*,items(name,part_no,our_part_no)').order('created_at',{ascending:false}),
-      SB.from('items').select('id,name,qty,booked_qty'),
-      SB.from('customers').select('id,name'),
-      SB.from('orders').select('id,customer_id,order_type')
-    ]);
+  const [{data:bos},{data:items},{data:orders}]=await Promise.all([
+    SB.from('back_orders').select('*,items(name,part_no)').order('created_at',{ascending:false}),
+    SB.from('items').select('*'),
+    SB.from('orders').select('id,customer_id'),
+  ]);
+  const canApprove=['owner','manager','store_supervisor'].includes(CS.role);
+  const isOrdering=['owner','manager','ordering'].includes(CS.role);
 
-    const pending=(bos||[]).filter(b=>b.status==='pending');
-    const approved=(bos||[]).filter(b=>b.status==='approved');
-    const fulfilled=(bos||[]).filter(b=>b.status==='fulfilled');
+  const pending=(bos||[]).filter(b=>b.status==='pending');
+  const approved=(bos||[]).filter(b=>b.status==='approved');
+  const fulfilled=(bos||[]).filter(b=>b.status==='fulfilled');
 
-    const canApprove=['manager','owner','store_supervisor'].includes(CS.role);
-    const isOrdering=CS.role==='ordering';
+  let html='<div class="page-hdr"><div class="page-title">Back Orders</div></div>';
 
-    const otBadge=(t)=>t==='EO'?'<span class="badge badge-danger">🔴 EO</span>':t==='SE'?'<span class="badge badge-warning">🟡 SE</span>':'<span class="badge badge-info">🔵 SO</span>';
-
-    const renderBOTable=(list,showApprove,showSentToOrdering)=>{
-      if(!list.length) return '<div class="empty-state" style="padding:20px">No records</div>';
-      return `<div class="tbl-wrap"><table>
-        <thead><tr><th>BO ID</th><th>Order</th><th>Customer</th><th>Item</th><th>Pending Qty</th><th>Type</th><th>ETA</th><th>Notes</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>${list.map(bo=>{
-          const ord=orders?.find(o=>o.id===bo.order_id);
-          const cust=custs?.find(c=>c.id===ord?.customer_id);
-          const itm=items?.find(i=>i.id===bo.item_id);
-          const avail=Math.max(0,(itm?.qty||0)-(itm?.booked_qty||0));
-          return `<tr>
-            <td><b style="color:#185FA5">${bo.id}</b></td>
-            <td style="font-size:12px">${bo.order_id}</td>
-            <td style="font-size:12px">${cust?.name||'—'}</td>
-            <td><b>${bo.items?.name||bo.item_id}</b><br><span style="font-size:11px;color:#718096">${bo.items?.part_no||''}</span></td>
-            <td><b class="text-danger">${bo.pending_qty}</b><br><span style="font-size:11px;color:#718096">Avail now: ${avail}</span></td>
-            <td>${otBadge(bo.order_type||ord?.order_type||'SO')}</td>
-            <td style="color:#d69e2e;font-size:12px">${bo.eta||'—'}</td>
-            <td style="font-size:12px;color:#718096;max-width:120px">${bo.notes||'—'}</td>
-            <td><span class="badge ${bo.status==='pending'?'badge-warning':bo.status==='approved'?'badge-info':'badge-success'}">${bo.status}</span></td>
-            <td style="display:flex;gap:5px;flex-wrap:wrap">
-              <button class="btn btn-sm" onclick="showEditBO('${bo.id}')">✏️ Edit</button>
-              ${showApprove&&canApprove?`<button class="btn btn-sm btn-primary" onclick="approveBO('${bo.id}')">✅ Approve → Ordering</button>`:''}
-              ${showSentToOrdering&&isOrdering?`<button class="btn btn-sm btn-success" onclick="fulfillBO('${bo.id}')">✅ Mark Fulfilled</button>`:''}
-            </td>
-          </tr>`;
-        }).join('')}</tbody></table></div>`;
-    };
-
-    setHTML(`<div class="page-hdr"><div class="page-title">Back Orders</div></div>
-    <div class="grid3" style="margin-bottom:14px">
-      <div class="metric"><div class="metric-label">Pending Approval</div><div class="metric-value text-danger">${pending.length}</div></div>
-      <div class="metric"><div class="metric-label">Sent to Ordering</div><div class="metric-value" style="color:#185FA5">${approved.length}</div></div>
-      <div class="metric"><div class="metric-label">Fulfilled</div><div class="metric-value text-success">${fulfilled.length}</div></div>
-    </div>
-
-    ${pending.length?`
-    <div class="card" style="border-color:#fc8181">
-      <div class="card-title" style="color:#9b2c2c">⏳ PENDING APPROVAL (${pending.length})</div>
-      ${canApprove?'<div class="alert alert-info" style="margin-bottom:10px">Review and approve to send to Ordering Department</div>':''}
-      ${renderBOTable(pending,true,false)}
-    </div>`:''}
-
-    ${approved.length?`
-    <div class="card" style="border-color:#90cdf4">
-      <div class="card-title" style="color:#2c5282">📋 SENT TO ORDERING DEPT (${approved.length})</div>
-      ${isOrdering?'<div class="alert alert-info" style="margin-bottom:10px">These back orders need to be purchased. Mark fulfilled after ordering.</div>':''}
-      ${renderBOTable(approved,false,true)}
-    </div>`:''}
-
-    ${fulfilled.length?`
-    <div class="card">
-      <div class="card-title">✅ FULFILLED BACK ORDERS</div>
-      ${renderBOTable(fulfilled,false,false)}
-    </div>`:''}
-
-    ${!pending.length&&!approved.length&&!fulfilled.length?'<div class="card"><div class="empty-state"><div style="font-size:32px">📋</div><p>No back orders yet</p></div></div>':''}`);
-  }catch(e){
-    setHTML(`<div class="alert alert-warning">Error: ${e.message}</div><button class="btn btn-primary" onclick="pgBackOrders()">🔄 Retry</button>`);
+  if(canApprove){
+    html+='<div class="alert alert-info" style="margin-bottom:10px">Review and approve to send to Ordering Department</div>';
   }
+
+  function renderBOGroup(list, title, color){
+    if(!list.length) return '';
+    let h='<div class="card" style="border-color:'+color+';margin-bottom:12px">';
+    h+='<div class="card-title" style="color:'+color+'">'+title+' ('+list.length+')</div>';
+    h+='<div class="tbl-wrap"><table><thead><tr><th>BO ID</th><th>Order</th><th>Item</th><th>Pending Qty</th><th>ETA</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+    list.forEach(function(bo){
+      const showApprove=bo.status==='pending'&&canApprove;
+      const showFulfill=bo.status==='approved'&&isOrdering;
+      h+='<tr>';
+      h+='<td style="font-size:12px;font-weight:700">'+bo.id+'</td>';
+      h+='<td style="font-size:12px">'+bo.order_id+'</td>';
+      h+='<td>'+(bo.items?.name||bo.item_id)+'<br><span style="font-size:11px;color:#718096">'+(bo.items?.part_no||'')+'</span></td>';
+      h+='<td class="text-danger"><b>'+bo.pending_qty+'</b></td>';
+      h+='<td style="color:#d69e2e">'+(bo.eta||'—')+'</td>';
+      h+='<td><span class="badge '+(bo.status==='pending'?'badge-warning':bo.status==='approved'?'badge-info':'badge-success')+'">'+bo.status+'</span></td>';
+      h+='<td style="display:flex;gap:6px">';
+      if(showApprove) h+='<button class="btn btn-sm btn-primary" onclick="approveBO(\''+bo.id+'\')">✅ Approve</button>';
+      if(showFulfill) h+='<button class="btn btn-sm btn-success" onclick="fulfillBO(\''+bo.id+'\')">✅ Fulfill</button>';
+      h+='<button class="btn btn-sm" onclick="showEditBO(\''+bo.id+'\')">Edit</button>';
+      h+='</td></tr>';
+    });
+    h+='</tbody></table></div></div>';
+    return h;
+  }
+
+  html+=renderBOGroup(pending,'PENDING BACK ORDERS','#d69e2e');
+  html+=renderBOGroup(approved,'APPROVED — Sent to Ordering','#185FA5');
+  html+=renderBOGroup(fulfilled,'FULFILLED','#38a169');
+
+  if(!(bos||[]).length){
+    html+='<div class="card"><div class="empty-state"><p>No back orders</p></div></div>';
+  }
+  setHTML(html);
 }
 
 async function showEditBO(boid){
@@ -3613,8 +3616,8 @@ async function pgClaimForms(){
           <td><span class="badge ${statusColor[cl.status]||'badge-gray'}">${cl.status}</span></td>
           <td style="display:flex;gap:5px;flex-wrap:wrap">
             <button class="btn btn-sm" onclick="showClaimDetail('${cl.id}')">View</button>
-            ${cl.status==='draft'?`<button class="btn btn-sm btn-primary" onclick="submitClaim('${cl.id}')">Submit</button>`:''}
-            ${cl.status==='submitted'?`<button class="btn btn-sm btn-success" onclick="showResolveClaim('${cl.id}',${cl.total_claim_amount})">Resolve</button>`:''}
+            '+(cl.status==\'draft\'?\'<button class="btn btn-sm btn-primary" onclick="submitClaim(\\\'+cl.id+\'\\\')" >Submit</button>\':\'\')+
+              html+=(cl.status==='submitted'?'<button class="btn btn-sm btn-success" onclick="showResolveClaim(\''+cl.id+'\')" >Resolve</button>':'');
             <button class="btn btn-sm" onclick="showFollowUp('${cl.id}','${cl.follow_up_date||''}','${(cl.follow_up_notes||'').replace(/'/g,"\\'")}')">📅 Follow-up</button>
           </td>
         </tr>`;
@@ -3641,18 +3644,12 @@ async function showClaimDetail(clid){
     </div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Part No</th><th>Description</th><th>Invoice Qty</th><th>Received OK</th><th>Short</th><th>Damaged</th><th>Unit Cost</th><th>Claim Amt</th></tr></thead>
-      <tbody>${(ci||[]).map(i=>`<tr>
-        <td style="font-size:12px">${i.part_no||'—'}</td><td>${i.description}</td>
-        <td>${i.invoice_qty}</td><td class="text-success">${i.received_qty}</td>
-        <td class="${i.short_qty>0?'text-danger':''}">${i.short_qty}</td>
-        <td class="${i.damaged_qty>0?'text-danger':''}">${i.damaged_qty}</td>
-        <td>${AED(i.unit_cost)}</td><td style="font-weight:700;color:#e53e3e">${AED(i.claim_amount)}</td>
-      </tr>`).join('')}</tbody>
+      <tbody>'+(ci||[]).map(function(i){return '<tr><td>'+(i.item_id||'—')+'</td><td>'+i.ordered_qty+'</td><td>'+i.received_qty+'</td><td>'+(i.discrepancy_type||'—')+'</td><td>'+(i.notes||'—')+'</td></tr>';}).join('')+'</tbody>
     </table></div>
     <div style="text-align:right;font-size:15px;font-weight:800;color:#e53e3e;margin-top:10px">Total Claim: ${AED(cl?.total_claim_amount)}</div>
-    ${cl?.resolved_amount>0?`<div style="text-align:right;font-size:13px;color:#38a169;margin-top:4px">Resolved Amount: ${AED(cl?.resolved_amount)}</div>`:''}
-    ${cl?.follow_up_notes?`<div class="alert alert-info" style="margin-top:10px">📝 Follow-up Notes: ${cl.follow_up_notes}</div>`:''}
-    ${cl?.notes?`<div class="alert alert-info">📋 Notes: ${cl.notes}</div>`:''}
+    html+=(cl?.resolved_amount>0?'<div style="text-align:right;font-size:13px;color:#38a169;margin-top:4px">✅ Resolved: '+AED(cl.resolved_amount)+'</div>':'');
+    '+(cl?.follow_up_notes?'<div class="alert alert-info" style="margin-top:10px">📝 Follow-up: '+cl.follow_up_notes+'</div>':'')+
+    '+(cl?.notes?'<div class="alert alert-info">Notes: '+cl.notes+'</div>':'')+
     <div class="modal-footer"><button class="btn" onclick="closeM()">Close</button></div>
   </div>`);
 }
@@ -4003,30 +4000,324 @@ function pbPrintMachine(machineName,serial,category){
   pw.document.close();
 }
 
+// ══════════════════════════════════════════
+// SERVICE & MANUAL REFERENCE
+// ══════════════════════════════════════════
+
+const MANUAL_META={
+  'WA470-5_OM':{machine:'WA470-5',type:'OM',label:'Operation & Maintenance Manual',cat:'Wheel Loaders',pages:355,color:'#185FA5'},
+  'WA470-5_SM':{machine:'WA470-5',type:'SM',label:'Shop Manual',cat:'Wheel Loaders',pages:1204,color:'#553c9a'},
+  'D155-6_OM': {machine:'D155-6', type:'OM',label:'Operation & Maintenance Manual',cat:'Dozers',pages:351,color:'#185FA5'},
+  'D155-6_SM': {machine:'D155-6', type:'SM',label:'Shop Manual',cat:'Dozers',pages:1345,color:'#553c9a'},
+  'PC400-8_OM':{machine:'PC400-8',type:'OM',label:'Operation & Maintenance Manual',cat:'Excavators',pages:391,color:'#185FA5'},
+  'PC400-8_SM':{machine:'PC400-8',type:'SM',label:'Shop Manual',cat:'Excavators',pages:1052,color:'#553c9a'},
+};
+
+// Embedded search index (4654 pages)
+const SVC_IDX=[];
+let _svcIndexLoaded=false;
+
+async function loadSvcIndex(){
+  if(_svcIndexLoaded)return true;
+  try{
+    const r=await fetch('svc_index.json');
+    const data=await r.json();
+    SVC_IDX.push(...data);
+    _svcIndexLoaded=true;
+    console.log('Service index loaded:',SVC_IDX.length,'pages');
+    return true;
+  }catch(e){
+    console.error('Failed to load service index:',e);
+    return false;
+  }
+}
+
+function pgServiceBook(){
+  window._svcLoaded=true;
+  let html='<div class="page-hdr"><div>';
+  html+='<div class="page-title">🔧 Service & Manual Search</div>';
+  html+='<div style="font-size:12px;color:#718096;margin-top:2px">Search across all manuals — WA470-5, D155-6, PC400-8 · OM & SM</div>';
+  html+='</div></div>';
+
+  // Main search box
+  html+='<div style="max-width:700px;margin-bottom:16px">';
+  html+='<div style="position:relative">';
+  html+='<input id="svc_q" placeholder="🔍  Search anything: \'recommended fuel\', \'error code E03\', \'hydraulic oil change interval\', \'track tension\'..." autocomplete="off"';
+  html+=' style="width:100%;font-size:15px;padding:14px 50px 14px 16px;border:2.5px solid #185FA5;border-radius:12px;outline:none;box-shadow:0 2px 12px rgba(24,95,165,0.15)"';
+  html+=' oninput="svcSearch()" onkeydown="if(event.key===\'Enter\')svcSearch()">';
+  html+='<button onclick="svcSearch()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:#185FA5;border:none;color:#fff;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:700">Search</button>';
+  html+='</div>';
+
+  // Filter row
+  html+='<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">';
+  html+='<span style="font-size:12px;color:#718096;font-weight:600">Filter:</span>';
+  html+='<button onclick="svcSetFilter(\'all\')" id="sf_all" class="btn btn-sm btn-primary" style="font-size:12px">All Manuals</button>';
+  html+='<button onclick="svcSetFilter(\'WA470-5\')" id="sf_wa" class="btn btn-sm" style="font-size:12px">🔧 WA470-5</button>';
+  html+='<button onclick="svcSetFilter(\'D155-6\')" id="sf_d155" class="btn btn-sm" style="font-size:12px">🚜 D155-6</button>';
+  html+='<button onclick="svcSetFilter(\'PC400-8\')" id="sf_pc4" class="btn btn-sm" style="font-size:12px">⛏️ PC400-8</button>';
+  html+='<button onclick="svcSetFilter(\'OM\')" id="sf_om" class="btn btn-sm" style="font-size:12px">📗 OM Only</button>';
+  html+='<button onclick="svcSetFilter(\'SM\')" id="sf_sm" class="btn btn-sm" style="font-size:12px">📕 SM Only</button>';
+  html+='</div>';
+  html+='</div>';
+
+  // Manual cards overview
+  html+='<div id="svc_cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:16px">';
+  const mkeys=['WA470-5_OM','WA470-5_SM','D155-6_OM','D155-6_SM','PC400-8_OM','PC400-8_SM'];
+  const catIcon={'Wheel Loaders':'🔧','Dozers':'🚜','Excavators':'⛏️'};
+  mkeys.forEach(function(k){
+    const m=MANUAL_META[k];
+    const icon=catIcon[m.cat]||'📖';
+    const typeColor=m.type==='OM'?'#185FA5':'#553c9a';
+    const typeBg=m.type==='OM'?'#ebf8ff':'#f3e8ff';
+    html+='<div style="background:#fff;border:2px solid #e2e8f0;border-radius:12px;padding:14px;cursor:pointer" onclick="svcSearchManual(\'' + k + '\'" onmouseover="this.style.borderColor=\'' + m.color + '\'" onmouseout="this.style.borderColor=\'#e2e8f0\'">';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
+    html+='<span style="font-size:28px">'+icon+'</span>';
+    html+='<div><div style="font-weight:800;font-size:15px;color:#1a2744">'+m.machine+'</div>';
+    html+='<span style="background:'+typeBg+';color:'+typeColor+';padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+m.type+' — '+m.label+'</span></div>';
+    html+='</div>';
+    html+='<div style="font-size:12px;color:#718096">'+m.pages+' pages · '+m.cat+'</div>';
+    html+='<div style="font-size:11px;color:#a0aec0;margin-top:4px">Click to browse all pages</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+
+  html+='<div id="svc_results"></div>';
+  setHTML(html);
+  window._svcFilter='all';
+  // Focus search
+  setTimeout(function(){const el=document.getElementById('svc_q');if(el)el.focus();},100);
+}
+
+window._svcFilter='all';
+
+function svcSetFilter(f){
+  window._svcFilter=f;
+  ['all','wa','d155','pc4','om','sm'].forEach(function(id){
+    const btn=document.getElementById('sf_'+id);
+    if(btn){btn.className='btn btn-sm';btn.style.background='';}
+  });
+  const map={all:'sf_all','WA470-5':'sf_wa','D155-6':'sf_d155','PC400-8':'sf_pc4','OM':'sf_om','SM':'sf_sm'};
+  const activeBtn=document.getElementById(map[f]);
+  if(activeBtn){activeBtn.className='btn btn-sm btn-primary';}
+  svcSearch();
+}
+
+function svcSearchManual(manualKey){
+  const el=document.getElementById('svc_q');
+  if(el){el.value='';el.focus();}
+  window._svcFilter=manualKey;
+  // Show all pages of this manual
+  svcShowAllPages(manualKey);
+}
+
+function svcShowAllPages(manualKey){
+  const meta=MANUAL_META[manualKey];
+  if(!meta)return;
+  const pages=SVC_IDX.filter(function(p){return p.m===manualKey;});
+  const res=document.getElementById('svc_results');
+  if(!res)return;
+
+  let html='<div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">';
+  html+='<button onclick="pgServiceBook()" class="btn btn-sm">← Back</button>';
+  html+='<div style="font-weight:700;font-size:15px">'+manualKey.replace('_',' ')+' — '+meta.label+' ('+pages.length+' pages)</div>';
+  html+='</div>';
+  html+='<div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;max-height:500px;overflow-y:auto;padding:8px">';
+  pages.slice(0,100).forEach(function(p){
+    html+=svcResultCard(p,false);
+  });
+  if(pages.length>100) html+='<div style="padding:12px;text-align:center;color:#718096">Showing first 100 pages — use search to find specific content</div>';
+  html+='</div>';
+  res.innerHTML=html;
+}
+
+function svcSearch(){
+  const q=(document.getElementById('svc_q')?.value||'').trim().toLowerCase();
+  const filter=window._svcFilter||'all';
+  const res=document.getElementById('svc_results');
+  if(!res)return;
+
+  if(!q){
+    res.innerHTML='<div style="text-align:center;padding:30px;color:#718096">Type something to search across all manuals...</div>';
+    return;
+  }
+
+  // Filter index
+  let pool=SVC_IDX;
+  if(filter==='WA470-5') pool=pool.filter(function(p){return p.m.startsWith('WA470');});
+  else if(filter==='D155-6') pool=pool.filter(function(p){return p.m.startsWith('D155');});
+  else if(filter==='PC400-8') pool=pool.filter(function(p){return p.m.startsWith('PC400');});
+  else if(filter==='OM') pool=pool.filter(function(p){return p.m.endsWith('_OM');});
+  else if(filter==='SM') pool=pool.filter(function(p){return p.m.endsWith('_SM');});
+  else if(filter!=='all') pool=pool.filter(function(p){return p.m===filter;});
+
+  // Score
+  const words=q.split(/\s+/).filter(function(w){return w.length>1;});
+  const results=[];
+  pool.forEach(function(p){
+    let score=0;
+    const text=p.t;
+    words.forEach(function(w){
+      if(text.includes(w)){
+        // Exact match in first 100 chars = higher score (likely header/title)
+        score += text.substring(0,100).includes(w)?5:1;
+        // Count occurrences
+        let pos=-1,cnt=0;
+        while((pos=text.indexOf(w,pos+1))!==-1)cnt++;
+        score+=cnt;
+      }
+    });
+    // Bonus: all words found
+    if(words.every(function(w){return text.includes(w);})) score+=10;
+    if(score>0) results.push({...p,score:score});
+  });
+
+  results.sort(function(a,b){return b.score-a.score;});
+  const top=results.slice(0,20);
+
+  if(!top.length){
+    res.innerHTML='<div style="padding:30px;text-align:center;background:#fff;border-radius:10px;border:1.5px solid #e2e8f0">'
+      +'<div style="font-size:32px;margin-bottom:8px">🔍</div>'
+      +'<div style="font-weight:700;color:#4a5568">No results for "'+q+'"</div>'
+      +'<div style="color:#718096;font-size:13px;margin-top:6px">Try different keywords or check the filter settings</div>'
+      +'</div>';
+    return;
+  }
+
+  let html='<div style="font-size:13px;color:#718096;margin-bottom:10px;font-weight:600">'+results.length+' pages found — showing top '+top.length+'</div>';
+  html+='<div style="display:flex;flex-direction:column;gap:8px">';
+  top.forEach(function(p){html+=svcResultCard(p,true,q);});
+  html+='</div>';
+  if(results.length>20){
+    html+='<div style="padding:12px;text-align:center;color:#718096;font-size:13px">'+results.length+' total results — refine your search for more precise results</div>';
+  }
+  res.innerHTML=html;
+}
+
+function svcHighlight(text,query){
+  if(!query)return text;
+  const words=query.toLowerCase().split(/\s+/).filter(function(w){return w.length>1;});
+  let result=text;
+  words.forEach(function(w){
+    const re=new RegExp('('+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+    result=result.replace(re,'<mark style="background:#fef08a;padding:0 2px;border-radius:3px">$1</mark>');
+  });
+  return result;
+}
+
+function svcResultCard(p,showScore,query){
+  var meta=MANUAL_META[p.m];
+  if(!meta)return '';
+  var typeColor=p.m.endsWith('_OM')?'#185FA5':'#553c9a';
+  var typeBg=p.m.endsWith('_OM')?'#ebf8ff':'#f3e8ff';
+  var icons={'Wheel Loaders':'🔧','Dozers':'🚜','Excavators':'⛏️'};
+  var catIcon=icons[meta.cat]||'📖';
+  var preview=p.v||'';
+  if(query&&p.t){
+    var qLow=query.toLowerCase();
+    var tLow=p.t;
+    var qPos=tLow.indexOf(qLow.split(' ')[0]);
+    if(qPos>0){var start=Math.max(0,qPos-50);preview=p.t.substring(start,start+250);}
+  }
+  // Build card without inline event handlers
+  var manualKey=p.m;
+  var pageNum=p.p;
+  var card=document.createElement('div');
+  card.style.cssText='background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;margin-bottom:8px';
+  card.onmouseover=function(){this.style.borderColor=typeColor;this.style.background='#fafbff';};
+  card.onmouseout=function(){this.style.borderColor='#e2e8f0';this.style.background='#fff';};
+  card.onclick=function(){svcOpenPage(manualKey,pageNum);};
+  
+  var header='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+  header+='<span style="font-size:18px">'+catIcon+'</span>';
+  header+='<span style="font-weight:800;font-size:14px;color:#1a2744">'+meta.machine+'</span>';
+  header+='<span style="background:'+typeBg+';color:'+typeColor+';padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+meta.type+'</span>';
+  header+='<span style="color:#718096;font-size:12px">Page '+p.p+' / '+meta.pages+'</span>';
+  if(showScore)header+='<span style="margin-left:auto;background:#f0fdf4;color:#276749;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">★ '+p.score+'</span>';
+  header+='</div>';
+  
+  var previewHtml=query?svcHighlight(preview.substring(0,200),query):preview.substring(0,200);
+  var previewDiv='<div style="font-size:12px;color:#4a5568;line-height:1.6;background:#f8fafc;padding:8px 10px;border-radius:6px;font-family:monospace">'+previewHtml+'...</div>';
+  var action='<div style="margin-top:8px;display:flex;align-items:center;gap:8px"><div style="font-size:11px;color:#a0aec0">'+meta.label+'</div><div style="margin-left:auto;color:'+typeColor+';font-size:12px;font-weight:700">View Page '+p.p+' →</div></div>';
+  
+  card.innerHTML=header+previewDiv+action;
+  
+  // Return as outer HTML
+  var tmp=document.createElement('div');
+  tmp.appendChild(card);
+  return tmp.innerHTML;
+}
+function svcOpenPage(manualKey,pageNum){
+  const meta=MANUAL_META[manualKey];
+  if(!meta)return;
+
+  // Find context pages (prev, current, next)
+  const pages=SVC_IDX.filter(function(p){return p.m===manualKey;});
+  const curIdx=pages.findIndex(function(p){return p.p===pageNum;});
+  const curPage=pages[curIdx];
+  const prevPage=curIdx>0?pages[curIdx-1]:null;
+  const nextPage=curIdx<pages.length-1?pages[curIdx+1]:null;
+
+  const res=document.getElementById('svc_results');
+  if(!res)return;
+
+  const catIcon={'Wheel Loaders':'🔧','Dozers':'🚜','Excavators':'⛏️'}[meta.cat]||'📖';
+  const typeColor=manualKey.endsWith('_OM')?'#185FA5':'#553c9a';
+
+  let html='<div style="background:#fff;border:2px solid '+typeColor+';border-radius:12px;overflow:hidden">';
+
+  // Header
+  html+='<div style="background:'+typeColor+';color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px">';
+  html+='<span style="font-size:24px">'+catIcon+'</span>';
+  html+='<div style="flex:1"><div style="font-size:16px;font-weight:800">'+meta.machine+' — '+meta.type+'</div>';
+  html+='<div style="font-size:12px;opacity:0.85">'+meta.label+' · Page '+pageNum+' of '+meta.pages+'</div></div>';
+  html+='<button onclick="svcSearch()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:12px">← Back to Results</button>';
+  html+='</div>';
+
+  // Navigation
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0">';
+  html+=prevPage?'<button onclick="svcOpenPage(\''+manualKey+'\','+prevPage.p+')" class="btn btn-sm">← Page '+prevPage.p+'</button>':'<span></span>';
+  html+='<span style="font-size:13px;font-weight:700;color:#4a5568">Page '+pageNum+'</span>';
+  html+=nextPage?'<button onclick="svcOpenPage(\''+manualKey+'\','+nextPage.p+')" class="btn btn-sm">Page '+nextPage.p+' →</button>':'<span></span>';
+  html+='</div>';
+
+  // Page content
+  html+='<div style="padding:16px;font-family:monospace;font-size:13px;line-height:1.8;color:#1a202c;white-space:pre-wrap;max-height:450px;overflow-y:auto;background:#fffef5">';
+  const q=(document.getElementById('svc_q')?.value||'').trim();
+  const pageText=curPage?curPage.t.substring(0,800):'Content not available';
+  html+=q?svcHighlight(pageText,q):pageText;
+  html+='</div>';
+
+  // Context: surrounding pages
+  html+='<div style="padding:12px 16px;background:#f0f4f8;border-top:1px solid #e2e8f0;font-size:12px;color:#718096">';
+  html+='<b>Note:</b> This shows extracted text. For full page view with diagrams and images, refer to the original PDF file.';
+  html+='</div></div>';
+
+  res.innerHTML=html;
+  res.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+
 // DISCREPANCIES
 async function pgDisc(){
   try{
-    const [{data:ds},{data:items}]=await Promise.all([
-      SB.from('discrepancies').select('*').order('created_at',{ascending:false}),
-      SB.from('items').select('id,name')
-    ]);
-    setHTML(`<div class="page-hdr"><div class="page-title">Discrepancies</div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>PO</th><th>Item</th><th>Received</th><th>Type</th><th>Date</th><th>Status</th><th></th></tr></thead>
-    <tbody>${(ds||[]).length===0?'<tr><td colspan="8" style="text-align:center;padding:30px;color:#718096">No discrepancies reported</td></tr>':(ds||[]).map(d=>{
-      const it=items?.find(i=>i.id===d.item_id);
-      return `<tr>
-        <td><b>${d.id}</b></td><td>${d.po_id||'—'}</td>
-        <td>${it?.name||d.item_id}</td>
-        <td>${d.received_qty}</td>
-        <td><span class="badge ${d.discrepancy_type==='short'?'badge-warning':'badge-danger'}">${d.discrepancy_type||'—'}</span></td>
-        <td>${d.date}</td>
-        <td><span class="badge ${d.status==='resolved'?'badge-success':'badge-warning'}">${d.status}</span></td>
-        <td>${d.status==='reported'?`<button class="btn btn-sm btn-success" onclick="rslvDisc('${d.id}')">Resolve</button>`:'—'}</td>
-      </tr>`;
-    }).join('')}</tbody></table></div>`);
-  }catch(e){
-    setHTML(`<div class="alert alert-warning">Error: ${e.message}</div><button class="btn btn-primary" onclick="pgDisc()">🔄 Retry</button>`);
-  }
+    var r1=await SB.from('discrepancies').select('*').order('created_at',{ascending:false});
+    var r2=await SB.from('items').select('id,name');
+    var ds=r1.data||[]; var items=r2.data||[];
+    var html='<div class="page-hdr"><div class="page-title">Discrepancies</div></div>';
+    html+='<div class="tbl-wrap"><table><thead><tr><th>ID</th><th>PO</th><th>Item</th><th>Received</th><th>Type</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>';
+    if(!ds.length){html+='<tr><td colspan="8" style="text-align:center;padding:30px;color:#718096">No discrepancies reported</td></tr>';}
+    else{ds.forEach(function(d){
+      var it=items.find(function(i){return i.id===d.item_id;})||{name:d.item_id};
+      html+='<tr><td><b>'+d.id+'</b></td><td>'+(d.po_id||'—')+'</td><td>'+it.name+'</td>';
+      html+='<td>'+d.received_qty+'</td>';
+      html+='<td><span class="badge '+(d.discrepancy_type==='short'?'badge-warning':'badge-danger')+'">'+( d.discrepancy_type||'—')+'</span></td>';
+      html+='<td>'+d.date+'</td>';
+      html+='<td><span class="badge '+(d.status==='resolved'?'badge-success':'badge-warning')+'">'+d.status+'</span></td>';
+      html+='<td>'+(d.status==='reported'?'<button class="btn btn-sm btn-success" onclick="rslvDisc(\''+d.id+'\')">Resolve</button>':'—')+'</td></tr>';
+    });}
+    html+='</tbody></table></div>';
+    setHTML(html);
+  }catch(e){setHTML('<div class="alert alert-warning">Error: '+e.message+'</div><button class="btn btn-primary" onclick="pgDisc()">Retry</button>');}
 }
 async function rslvDisc(id){
   await SB.from('discrepancies').update({status:'resolved'}).eq('id',id);
@@ -4035,36 +4326,79 @@ async function rslvDisc(id){
 
 // REPORTS
 async function pgRep(){
-  const [{data:items},{data:invs},{data:orders},{data:sd}]=await Promise.all([SB.from('items').select('*'),SB.from('invoices').select('*'),SB.from('orders').select('*'),SB.from('short_damaged').select('*')]);
-  const sv=(items||[]).reduce((s,i)=>s+i.qty*i.cost,0),tr=(invs||[]).reduce((s,i)=>s+i.total,0);
-  const cats=[...new Set((items||[]).map(i=>i.category))];
-  setHTML(`<div class="page-hdr"><div class="page-title">Reports</div></div>
-  <div class="grid4">
-    <div class="metric"><div class="metric-label">Stock Value</div><div class="metric-value" style="font-size:16px">${AED(sv)}</div></div>
-    <div class="metric"><div class="metric-label">Total Revenue</div><div class="metric-value" style="font-size:16px;color:#38a169">${AED(tr)}</div></div>
-    <div class="metric"><div class="metric-label">Total Orders</div><div class="metric-value">${(orders||[]).length}</div></div>
-    <div class="metric"><div class="metric-label">Short/Damaged Events</div><div class="metric-value text-danger">${(sd||[]).length}</div></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><div class="card-title">Stock by Category</div><div class="tbl-wrap"><table><thead><tr><th>Category</th><th>Items</th><th>Qty</th><th>Value</th></tr></thead><tbody>${cats.map(cat=>{const ci=(items||[]).filter(i=>i.category===cat);return `<tr><td>${cat}</td><td>${ci.length}</td><td>${ci.reduce((s,i)=>s+i.qty,0)}</td><td>${AED(ci.reduce((s,i)=>s+i.qty*i.cost,0))}</td></tr>`;}).join('')}</tbody></table></div></div>
-    <div class="card"><div class="card-title">Short & Damaged</div>${(sd||[]).length===0?'<div class="empty-state" style="padding:20px">✅ No records</div>':'<div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Short</th><th>Damaged</th><th>Date</th></tr></thead><tbody>'+(sd||[]).slice(0,10).map(r=>`<tr><td>${r.order_id}</td><td class="text-danger">${r.short_qty}</td><td class="text-danger">${r.damaged_qty}</td><td>${r.date}</td></tr>`).join('')+'</tbody></table></div>'}</div>
-  </div>
-  <div class="card"><div class="card-title">Low Stock Items</div><div class="tbl-wrap"><table><thead><tr><th>Part No</th><th>Name</th><th>Qty</th><th>Reorder</th><th>Status</th></tr></thead><tbody>${(items||[]).filter(i=>i.qty<=i.reorder_level).map(i=>`<tr><td style="font-size:12px;color:#718096">${i.part_no}</td><td>${i.name}</td><td class="${i.qty===0?'text-danger':''}">${i.qty}</td><td>${i.reorder_level}</td><td>${i.qty===0?'<span class="badge badge-danger">Out</span>':'<span class="badge badge-warning">Low</span>'}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:20px;color:#718096">✅ All stocked</td></tr>'}</tbody></table></div></div>`);
+  const [{data:items},{data:orders},{data:sd}]=await Promise.all([
+    SB.from('items').select('*'),
+    SB.from('orders').select('*').order('created_at',{ascending:false}),
+    SB.from('short_damaged').select('*').order('created_at',{ascending:false}).limit(20)
+  ]);
+  const cats=[...new Set((items||[]).map(i=>i.category).filter(Boolean))].sort();
+  const revenue=(orders||[]).filter(o=>o.status!=='cancelled').reduce((s,o)=>s+o.total,0);
+  const sv=(items||[]).reduce((s,i)=>s+i.qty*i.cost,0);
+  const lowStock=(items||[]).filter(i=>i.qty<=(i.reorder_level||0)&&(i.reorder_level||0)>0);
+
+  let html='<div class="page-hdr"><div class="page-title">Reports</div></div>';
+  html+='<div class="grid3"><div class="metric"><div class="metric-label">Total Revenue</div><div class="metric-value" style="color:#38a169">'+AED(revenue)+'</div></div>';
+  html+='<div class="metric"><div class="metric-label">Stock Value</div><div class="metric-value" style="color:#185FA5">'+AED(sv)+'</div></div>';
+  html+='<div class="metric"><div class="metric-label">Low Stock Items</div><div class="metric-value" style="color:#e53e3e">'+lowStock.length+'</div></div></div>';
+  html+='<div class="grid2">';
+
+  // Stock by category
+  html+='<div class="card"><div class="card-title">Stock by Category</div>';
+  html+='<div class="tbl-wrap"><table><thead><tr><th>Category</th><th>Items</th><th>Total Qty</th><th>Value</th></tr></thead><tbody>';
+  cats.forEach(function(cat){
+    const it=(items||[]).filter(i=>i.category===cat);
+    html+='<tr><td>'+cat+'</td><td>'+it.length+'</td><td>'+it.reduce((s,i)=>s+i.qty,0)+'</td><td>'+AED(it.reduce((s,i)=>s+i.qty*i.cost,0))+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+
+  // Short & Damaged
+  html+='<div class="card"><div class="card-title">Recent Short & Damaged</div>';
+  if((sd||[]).length){
+    html+='<div class="tbl-wrap"><table><thead><tr><th>Order</th><th>Short</th><th>Damaged</th><th>Date</th></tr></thead><tbody>';
+    (sd||[]).forEach(function(s){html+='<tr><td>'+s.order_id+'</td><td class="text-danger">'+s.short_qty+'</td><td class="text-danger">'+s.damaged_qty+'</td><td>'+s.date+'</td></tr>';});
+    html+='</tbody></table></div>';
+  } else {
+    html+='<div class="empty-state" style="padding:20px">No reports</div>';
+  }
+  html+='</div></div>';
+
+  // Low stock
+  html+='<div class="card"><div class="card-title">Low Stock Items</div>';
+  html+='<div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Part No</th><th>Qty</th><th>Reorder Level</th></tr></thead><tbody>';
+  if(lowStock.length){
+    lowStock.forEach(function(i){html+='<tr><td><b>'+i.name+'</b></td><td style="font-size:12px">'+( i.part_no||'—')+'</td><td class="text-danger"><b>'+i.qty+'</b></td><td>'+i.reorder_level+'</td></tr>';});
+  } else {
+    html+='<tr><td colspan="4" style="text-align:center;padding:20px;color:#718096">All items stocked!</td></tr>';
+  }
+  html+='</tbody></table></div></div>';
+  setHTML(html);
 }
 
 // STAFF
 async function pgStaff(){
-  const {data:staff}=await SB.from('staff').select('*').order('name');
-  setHTML(`<div class="page-hdr"><div class="page-title">Staff Management</div><button class="btn btn-primary" onclick="showAddStaff()">+ Add Staff</button></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Status</th><th></th></tr></thead>
-  <tbody>${(staff||[]).map(s=>`<tr><td><b>${s.name}</b></td><td style="font-size:12px;color:#718096">${s.email}</td><td><span class="badge badge-info">${ROLES[s.role]||s.role}</span></td><td style="font-size:12px">${s.phone||'—'}</td><td><span class="badge ${s.active?'badge-success':'badge-gray'}">${s.active?'Active':'Inactive'}</span></td><td><button class="btn btn-sm" onclick="tglStaff('${s.id}',${s.active})">${s.active?'Deactivate':'Activate'}</button></td></tr>`).join('')}</tbody></table></div>`);
+  var r=await SB.from('staff').select('*').order('name');
+  var staff=r.data||[];
+  var canEdit=['owner','manager'].includes(CS.role);
+  var html='<div class="page-hdr"><div class="page-title">Staff</div>';
+  if(canEdit)html+='<button class="btn btn-primary" onclick="showAddStaff()">+ Add Staff</button>';
+  html+='</div><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th>'+(canEdit?'<th></th>':'')+'</tr></thead><tbody>';
+  if(!staff.length){html+='<tr><td colspan="5" style="text-align:center;padding:30px;color:#718096">No staff yet</td></tr>';}
+  else{staff.forEach(function(s){
+    html+='<tr><td><b>'+s.name+'</b></td><td style="font-size:12px">'+s.email+'</td>';
+    html+='<td><span class="badge badge-info">'+(ROLES[s.role]||s.role)+'</span></td>';
+    html+='<td><span class="badge '+(s.active!==false?'badge-success':'badge-danger')+'">'+(s.active!==false?'Active':'Inactive')+'</span></td>';
+    if(canEdit)html+='<td><button class="btn btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td>';
+    html+='</tr>';
+  });}
+  html+='</tbody></table></div>';
+  setHTML(html);
 }
 async function tglStaff(id,a){await SB.from('staff').update({active:!a}).eq('id',id);pgStaff();}
 function showAddStaff(){
   openM(`<div class="modal" style="width:440px">
     <div class="modal-title">Add Staff Member</div>
     <div class="form-row cols2"><div class="form-group"><label>Full Name</label><input id="sf_n"></div><div class="form-group"><label>Email</label><input id="sf_e" type="email"></div></div>
-    <div class="form-row cols2"><div class="form-group"><label>Role</label><select id="sf_r">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div><div class="form-group"><label>Phone</label><input id="sf_p" placeholder="+971..."></div></div>
+    <div class="form-row cols2"><div class="form-group"><label>Role</label><select id="sf_r">${Object.entries(ROLES).map(function(e){return '<option value="'+e[0]+'">'+e[1]+'</option>';}).join('')}</select></div><div class="form-group"><label>Phone</label><input id="sf_p" placeholder="+971..."></div></div>
     <div class="info-box">Staff logs in with their email. They set password on first login.</div>
     <div class="modal-footer"><button class="btn" onclick="closeM()">Cancel</button><button class="btn btn-primary" onclick="saveStaff()">Add</button></div>
   </div>`);
@@ -4091,7 +4425,7 @@ async function pgSettings(){
     </div>
     <div class="form-group"><label>Default Currency</label>
       <select id="set_cur">
-        ${CURRENCIES.map(c=>`<option value="${c}" ${c===defCur?'selected':''}>${c}</option>`).join('')}
+        ${CURRENCIES.map(function(c){return '<option value="'+c+'"'+(c===defCur?' selected':'')+'>'+c+'</option>';}).join('')}
       </select>
     </div>
     <div class="info-box">
@@ -4124,27 +4458,267 @@ async function saveSets(){
   pgSettings();
 }
 </script>
-<script>
-// PWA Service Worker Registration
-if('serviceWorker' in navigator){
-  window.addEventListener('load',function(){
-    navigator.serviceWorker.register('sw.js').then(function(reg){
-      console.log('SW registered');
-    }).catch(function(err){
-      console.log('SW registration failed (ok for local file):', err);
-    });
-  });
-}
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;background:#f0f4f8;color:#1a202c;height:100vh;overflow:hidden}
+.app{display:flex;flex-direction:column;height:100vh}
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1a365d 0%,#2a69ac 100%)}
+.login-box{background:#fff;border-radius:16px;padding:40px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.25)}
+.login-logo{font-size:28px;font-weight:800;color:#185FA5;margin-bottom:4px}
+.login-sub{color:#718096;font-size:13px;margin-bottom:28px}
+.login-box label{display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px}
+.login-box input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;margin-bottom:16px;transition:border 0.2s}
+.login-box input:focus{outline:none;border-color:#185FA5}
+.btn-login{width:100%;padding:13px;background:#185FA5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer}
+.btn-login:hover{background:#0C447C}
+.login-err{color:#e53e3e;font-size:13px;margin-bottom:12px;text-align:center;background:#fff5f5;padding:8px;border-radius:6px}
+.login-hint{margin-top:14px;font-size:12px;color:#718096;text-align:center;background:#f7fafc;padding:10px;border-radius:8px;line-height:1.6}
+.topbar{background:#1a2744;color:#fff;padding:0 20px;display:flex;align-items:center;gap:12px;height:52px;flex-shrink:0}
+.topbar-logo{font-size:17px;font-weight:800;color:#63b3ed}
+.topbar-logo span{font-weight:400;opacity:0.6;font-size:13px;margin-left:4px;color:#fff}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.role-pill{background:rgba(99,179,237,0.2);border:1px solid rgba(99,179,237,0.4);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#63b3ed}
+.user-name{font-size:13px;opacity:0.8}
+.btn-logout{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-logout:hover{background:rgba(255,255,255,0.2)}
+.body-wrap{display:flex;flex:1;overflow:hidden}
+.sidebar{width:215px;background:#1e2d4a;overflow-y:auto;flex-shrink:0;padding:10px 0}
+.nav-section{padding:12px 16px 4px;font-size:10px;color:rgba(255,255,255,0.35);font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;color:rgba(255,255,255,0.6);font-size:13px;border-left:3px solid transparent;transition:all 0.15s}
+.nav-item:hover{background:rgba(255,255,255,0.07);color:#fff}
+.nav-item.active{background:rgba(99,179,237,0.15);color:#fff;border-left:3px solid #63b3ed}
+.nav-icon{font-size:15px;width:20px;text-align:center}
+.main{flex:1;overflow-y:auto;padding:22px}
+.page-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:20px;font-weight:800;color:#1a202c}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:14px}
+.card-title{font-size:11px;font-weight:700;color:#718096;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px}
+.metric-label{font-size:12px;color:#718096;margin-bottom:6px;font-weight:600}
+.metric-value{font-size:22px;font-weight:800;color:#1a202c}
+.metric-sub{font-size:11px;color:#a0aec0;margin-top:3px}
+.btn{padding:8px 16px;border-radius:8px;border:1.5px solid #e2e8f0;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#1a202c;transition:all 0.15s;font-family:inherit}
+.btn:hover{background:#f7fafc}
+.btn-primary{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-primary:hover{background:#0C447C;border-color:#0C447C}
+.btn-success{background:#c6f6d5;color:#276749;border-color:#9ae6b4}
+.btn-danger{background:#fed7d7;color:#9b2c2c;border-color:#fc8181}
+.btn-warning{background:#fefcbf;color:#744210;border-color:#f6e05e}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px}
+input,select,textarea{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:#1a202c;transition:border 0.2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#185FA5}
+.form-row{display:grid;gap:12px}
+.cols2{grid-template-columns:1fr 1fr}
+.cols3{grid-template-columns:1fr 1fr 1fr}
+.tbl-wrap{border-radius:10px;overflow:hidden;border:1px solid #e2e8f0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.5px}
+td{padding:10px 14px;border-bottom:1px solid #f0f4f8;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafbff}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700}
+.badge-success{background:#c6f6d5;color:#276749}
+.badge-danger{background:#fed7d7;color:#9b2c2c}
+.badge-warning{background:#fefcbf;color:#744210}
+.badge-info{background:#bee3f8;color:#2c5282}
+.badge-gray{background:#e2e8f0;color:#4a5568}
+.toolbar{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+.toolbar input,.toolbar select{max-width:200px;margin-bottom:0}
+.ml{margin-left:auto}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:14px;padding:24px;width:620px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,0.3)}
+.modal-title{font-size:17px;font-weight:800;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #e2e8f0}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0}
+.alert{padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600}
+.alert-warning{background:#fefcbf;color:#744210;border:1px solid #f6e05e}
+.alert-danger{background:#fed7d7;color:#9b2c2c;border:1px solid #fc8181}
+.alert-success{background:#c6f6d5;color:#276749;border:1px solid #9ae6b4}
+.alert-info{background:#bee3f8;color:#2c5282;border:1px solid #90cdf4}
+.text-danger{color:#e53e3e;font-weight:700}
+.text-success{color:#38a169;font-weight:700}
+.text-muted{color:#718096}
+.picking-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px}
+.loading{display:flex;align-items:center;justify-content:center;padding:60px;color:#718096;font-size:15px;gap:10px}
+.spinner{width:22px;height:22px;border:2.5px solid #e2e8f0;border-top-color:#185FA5;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty-state{text-align:center;padding:40px 20px;color:#718096}
+.order-line-item{display:flex;align-items:center;gap:8px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;flex-wrap:wrap}
+.stock-warn{background:#fff5f5;border-color:#fc8181}
+.info-box{background:#ebf8ff;border:1px solid #90cdf4;border-radius:8px;padding:12px;margin:10px 0;font-size:13px;color:#2c5282}
+.sep{height:1px;background:#e2e8f0;margin:14px 0}
+</style>
+</head>
+<body>
+<div id="loginScreen">
+  <div class="login-wrap">
+    <div class="login-box">
+      <div class="login-logo">🔧 AutoParts Hub</div>
+      <div class="login-sub">Spare Parts Inventory Management · AED</div>
+      <div id="loginErr" class="login-err" style="display:none"></div>
+      <label>Email Address</label>
+      <input type="email" id="loginEmail" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doLogin()">
+      <label>Password</label>
+      <input type="password" id="loginPass" placeholder="Min 6 characters" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn-login" onclick="doLogin()" id="loginBtn">Login to AutoParts Hub</button>
+      <div class="login-hint">
+        <strong>Owner:</strong> areeeb72@gmail.com<br>
+        <strong>Manager:</strong> jrsy2027@gmail.com<br>
+        First login: use any password (min 6 chars) to create account
+      </div>
+    </div>
+  </div>
+</div>
+<div id="appScreen" class="app" style="display:none">
+  <div class="topbar">
+    <div class="topbar-logo">🔧 AutoParts Hub <span>ERP</span></div>
+    <div class="topbar-right">
+      <span class="role-pill" id="topRole"></span>
+      <span class="user-name" id="topName"></span>
+      <button class="btn-logout" onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+  <div class="body-wrap">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main" id="mainContent"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  </div>
+</div>
+<div id="modalWrap"></div>
 
-// PWA Install prompt
-let deferredPrompt;
-window.addEventListener('beforeinstallprompt',function(e){
-  e.preventDefault();
-  deferredPrompt=e;
-  // Show install button if it exists
-  const btn=document.getElementById('pwa_install_btn');
-  if(btn)btn.style.display='block';
-});
-</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;background:#f0f4f8;color:#1a202c;height:100vh;overflow:hidden}
+.app{display:flex;flex-direction:column;height:100vh}
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1a365d 0%,#2a69ac 100%)}
+.login-box{background:#fff;border-radius:16px;padding:40px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.25)}
+.login-logo{font-size:28px;font-weight:800;color:#185FA5;margin-bottom:4px}
+.login-sub{color:#718096;font-size:13px;margin-bottom:28px}
+.login-box label{display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px}
+.login-box input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;margin-bottom:16px;transition:border 0.2s}
+.login-box input:focus{outline:none;border-color:#185FA5}
+.btn-login{width:100%;padding:13px;background:#185FA5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer}
+.btn-login:hover{background:#0C447C}
+.login-err{color:#e53e3e;font-size:13px;margin-bottom:12px;text-align:center;background:#fff5f5;padding:8px;border-radius:6px}
+.login-hint{margin-top:14px;font-size:12px;color:#718096;text-align:center;background:#f7fafc;padding:10px;border-radius:8px;line-height:1.6}
+.topbar{background:#1a2744;color:#fff;padding:0 20px;display:flex;align-items:center;gap:12px;height:52px;flex-shrink:0}
+.topbar-logo{font-size:17px;font-weight:800;color:#63b3ed}
+.topbar-logo span{font-weight:400;opacity:0.6;font-size:13px;margin-left:4px;color:#fff}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.role-pill{background:rgba(99,179,237,0.2);border:1px solid rgba(99,179,237,0.4);padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#63b3ed}
+.user-name{font-size:13px;opacity:0.8}
+.btn-logout{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-logout:hover{background:rgba(255,255,255,0.2)}
+.body-wrap{display:flex;flex:1;overflow:hidden}
+.sidebar{width:215px;background:#1e2d4a;overflow-y:auto;flex-shrink:0;padding:10px 0}
+.nav-section{padding:12px 16px 4px;font-size:10px;color:rgba(255,255,255,0.35);font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;color:rgba(255,255,255,0.6);font-size:13px;border-left:3px solid transparent;transition:all 0.15s}
+.nav-item:hover{background:rgba(255,255,255,0.07);color:#fff}
+.nav-item.active{background:rgba(99,179,237,0.15);color:#fff;border-left:3px solid #63b3ed}
+.nav-icon{font-size:15px;width:20px;text-align:center}
+.main{flex:1;overflow-y:auto;padding:22px}
+.page-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:20px;font-weight:800;color:#1a202c}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:14px}
+.card-title{font-size:11px;font-weight:700;color:#718096;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px}
+.metric-label{font-size:12px;color:#718096;margin-bottom:6px;font-weight:600}
+.metric-value{font-size:22px;font-weight:800;color:#1a202c}
+.metric-sub{font-size:11px;color:#a0aec0;margin-top:3px}
+.btn{padding:8px 16px;border-radius:8px;border:1.5px solid #e2e8f0;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#1a202c;transition:all 0.15s;font-family:inherit}
+.btn:hover{background:#f7fafc}
+.btn-primary{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-primary:hover{background:#0C447C;border-color:#0C447C}
+.btn-success{background:#c6f6d5;color:#276749;border-color:#9ae6b4}
+.btn-danger{background:#fed7d7;color:#9b2c2c;border-color:#fc8181}
+.btn-warning{background:#fefcbf;color:#744210;border-color:#f6e05e}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px}
+input,select,textarea{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:#1a202c;transition:border 0.2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#185FA5}
+.form-row{display:grid;gap:12px}
+.cols2{grid-template-columns:1fr 1fr}
+.cols3{grid-template-columns:1fr 1fr 1fr}
+.tbl-wrap{border-radius:10px;overflow:hidden;border:1px solid #e2e8f0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:0.5px}
+td{padding:10px 14px;border-bottom:1px solid #f0f4f8;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafbff}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700}
+.badge-success{background:#c6f6d5;color:#276749}
+.badge-danger{background:#fed7d7;color:#9b2c2c}
+.badge-warning{background:#fefcbf;color:#744210}
+.badge-info{background:#bee3f8;color:#2c5282}
+.badge-gray{background:#e2e8f0;color:#4a5568}
+.toolbar{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+.toolbar input,.toolbar select{max-width:200px;margin-bottom:0}
+.ml{margin-left:auto}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:14px;padding:24px;width:620px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,0.3)}
+.modal-title{font-size:17px;font-weight:800;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #e2e8f0}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0}
+.alert{padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600}
+.alert-warning{background:#fefcbf;color:#744210;border:1px solid #f6e05e}
+.alert-danger{background:#fed7d7;color:#9b2c2c;border:1px solid #fc8181}
+.alert-success{background:#c6f6d5;color:#276749;border:1px solid #9ae6b4}
+.alert-info{background:#bee3f8;color:#2c5282;border:1px solid #90cdf4}
+.text-danger{color:#e53e3e;font-weight:700}
+.text-success{color:#38a169;font-weight:700}
+.text-muted{color:#718096}
+.picking-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:10px}
+.loading{display:flex;align-items:center;justify-content:center;padding:60px;color:#718096;font-size:15px;gap:10px}
+.spinner{width:22px;height:22px;border:2.5px solid #e2e8f0;border-top-color:#185FA5;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty-state{text-align:center;padding:40px 20px;color:#718096}
+.order-line-item{display:flex;align-items:center;gap:8px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;flex-wrap:wrap}
+.stock-warn{background:#fff5f5;border-color:#fc8181}
+.info-box{background:#ebf8ff;border:1px solid #90cdf4;border-radius:8px;padding:12px;margin:10px 0;font-size:13px;color:#2c5282}
+.sep{height:1px;background:#e2e8f0;margin:14px 0}
+</style>
+</head>
+<body>
+<div id="loginScreen">
+  <div class="login-wrap">
+    <div class="login-box">
+      <div class="login-logo">🔧 AutoParts Hub</div>
+      <div class="login-sub">Spare Parts Inventory Management · AED</div>
+      <div id="loginErr" class="login-err" style="display:none"></div>
+      <label>Email Address</label>
+      <input type="email" id="loginEmail" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doLogin()">
+      <label>Password</label>
+      <input type="password" id="loginPass" placeholder="Min 6 characters" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn-login" onclick="doLogin()" id="loginBtn">Login to AutoParts Hub</button>
+      <div class="login-hint">
+        <strong>Owner:</strong> areeeb72@gmail.com<br>
+        <strong>Manager:</strong> jrsy2027@gmail.com<br>
+        First login: use any password (min 6 chars) to create account
+      </div>
+    </div>
+  </div>
+</div>
+<div id="appScreen" class="app" style="display:none">
+  <div class="topbar">
+    <div class="topbar-logo">🔧 AutoParts Hub <span>ERP</span></div>
+    <div class="topbar-right">
+      <span class="role-pill" id="topRole"></span>
+      <span class="user-name" id="topName"></span>
+      <button class="btn-logout" onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+  <div class="body-wrap">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main" id="mainContent"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  </div>
+</div>
+<div id="modalWrap"></div>
+
 </body>
 </html>
