@@ -4230,33 +4230,23 @@ function svcResultCard(p,showScore,query){
     var qPos=tLow.indexOf(qLow.split(' ')[0]);
     if(qPos>0){var start=Math.max(0,qPos-50);preview=p.t.substring(start,start+250);}
   }
-  // Build card without inline event handlers
-  var manualKey=p.m;
-  var pageNum=p.p;
-  var card=document.createElement('div');
-  card.style.cssText='background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;margin-bottom:8px';
-  card.onmouseover=function(){this.style.borderColor=typeColor;this.style.background='#fafbff';};
-  card.onmouseout=function(){this.style.borderColor='#e2e8f0';this.style.background='#fff';};
-  card.onclick=function(){svcOpenPage(manualKey,pageNum);};
-  
-  var header='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-  header+='<span style="font-size:18px">'+catIcon+'</span>';
-  header+='<span style="font-weight:800;font-size:14px;color:#1a2744">'+meta.machine+'</span>';
-  header+='<span style="background:'+typeBg+';color:'+typeColor+';padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+meta.type+'</span>';
-  header+='<span style="color:#718096;font-size:12px">Page '+p.p+' / '+meta.pages+'</span>';
-  if(showScore)header+='<span style="margin-left:auto;background:#f0fdf4;color:#276749;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">★ '+p.score+'</span>';
-  header+='</div>';
-  
   var previewHtml=query?svcHighlight(preview.substring(0,200),query):preview.substring(0,200);
-  var previewDiv='<div style="font-size:12px;color:#4a5568;line-height:1.6;background:#f8fafc;padding:8px 10px;border-radius:6px;font-family:monospace">'+previewHtml+'...</div>';
-  var action='<div style="margin-top:8px;display:flex;align-items:center;gap:8px"><div style="font-size:11px;color:#a0aec0">'+meta.label+'</div><div style="margin-left:auto;color:'+typeColor+';font-size:12px;font-weight:700">View Page '+p.p+' →</div></div>';
-  
-  card.innerHTML=header+previewDiv+action;
-  
-  // Return as outer HTML
-  var tmp=document.createElement('div');
-  tmp.appendChild(card);
-  return tmp.innerHTML;
+
+  // Build as HTML string with data attributes + onclick calling global function
+  var card='<div class="svc-result-card" data-manual="'+p.m+'" data-page="'+p.p+'" onclick="svcOpenPage(this.dataset.manual,parseInt(this.dataset.page))" style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;cursor:pointer;margin-bottom:8px" onmouseover="this.style.borderColor=\''+typeColor+'\';this.style.background=\'#fafbff\'" onmouseout="this.style.borderColor=\'#e2e8f0\';this.style.background=\'#fff\'">';
+
+  card+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+  card+='<span style="font-size:18px">'+catIcon+'</span>';
+  card+='<span style="font-weight:800;font-size:14px;color:#1a2744">'+meta.machine+'</span>';
+  card+='<span style="background:'+typeBg+';color:'+typeColor+';padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+meta.type+'</span>';
+  card+='<span style="color:#718096;font-size:12px">Page '+p.p+' / '+meta.pages+'</span>';
+  if(showScore)card+='<span style="margin-left:auto;background:#f0fdf4;color:#276749;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">★ '+p.score+'</span>';
+  card+='</div>';
+
+  card+='<div style="font-size:12px;color:#4a5568;line-height:1.6;background:#f8fafc;padding:8px 10px;border-radius:6px;font-family:monospace">'+previewHtml+'...</div>';
+  card+='<div style="margin-top:8px;display:flex;align-items:center;gap:8px"><div style="font-size:11px;color:#a0aec0">'+meta.label+'</div><div style="margin-left:auto;color:'+typeColor+';font-size:12px;font-weight:700">View Page '+p.p+' →</div></div>';
+  card+='</div>';
+  return card;
 }
 function svcOpenPage(manualKey,pageNum){
   const meta=MANUAL_META[manualKey];
