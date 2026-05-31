@@ -4032,7 +4032,16 @@ async function loadSvcIndex(){
   }
 }
 
-function pgServiceBook(){
+async function pgServiceBook(){
+  // Load index if not already loaded
+  if(!_svcIndexLoaded){
+    setHTML('<div style="text-align:center;padding:60px"><div class="spinner"></div><p style="margin-top:20px;color:#718096;font-size:14px">Loading manual index (4,654 pages)...</p></div>');
+    const ok=await loadSvcIndex();
+    if(!ok){
+      setHTML('<div class="alert alert-warning" style="margin:20px">Could not load svc_index.json. Make sure this file is uploaded to GitHub alongside autoparts-hub.html.</div>');
+      return;
+    }
+  }
   window._svcLoaded=true;
   let html='<div class="page-hdr"><div>';
   html+='<div class="page-title">🔧 Service & Manual Search</div>';
@@ -4130,7 +4139,10 @@ function svcShowAllPages(manualKey){
   res.innerHTML=html;
 }
 
-function svcSearch(){
+async function svcSearch(){
+  if(!_svcIndexLoaded){
+    await loadSvcIndex();
+  }
   const q=(document.getElementById('svc_q')?.value||'').trim().toLowerCase();
   const filter=window._svcFilter||'all';
   const res=document.getElementById('svc_results');
